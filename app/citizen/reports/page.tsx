@@ -336,9 +336,11 @@ export default function MyReportsPage() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button variant="outline" size="sm" className="gap-1.5">
-                          <Eye className="h-3.5 w-3.5" />
-                          <span className="hidden sm:inline">View Details</span>
+                        <Button variant="outline" size="sm" className="gap-1.5" asChild>
+                          <Link href={`/citizen/reports/${report.id}`}>
+                            <Eye className="h-3.5 w-3.5" />
+                            <span className="hidden sm:inline">View Details</span>
+                          </Link>
                         </Button>
                       </TableCell>
                     </TableRow>
