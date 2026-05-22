@@ -1,42 +1,21 @@
-"use client"
+import { redirect } from "next/navigation"
 
-import { useEffect } from "react"
-import { useRouter } from "next/navigation"
-import { useUser } from "@clerk/nextjs"
+import { getCurrentDbUser } from "@/lib/current-user"
+import { UserRole } from "@/lib/generated/prisma/enums"
 
-type AppRole = "CITIZEN" | "DEPARTMENT_OFFICER" | "ADMIN" | "SUPER_ADMIN"
-
-function getDashboardPath(role?: string) {
-  if (role === "SUPER_ADMIN") return "/super-admin/dashboard"
-  if (role === "ADMIN") return "/admin/dashboard"
-  if (role === "DEPARTMENT_OFFICER") return "/officer/dashboard"
+function getDashboardPath(role: UserRole) {
+  if (role === UserRole.SUPER_ADMIN) return "/super-admin/dashboard"
+  if (role === UserRole.ADMIN) return "/admin/dashboard"
+  if (role === UserRole.DEPARTMENT_OFFICER) return "/officer/dashboard"
   return "/citizen/dashboard"
 }
 
-export default function RoleRedirectPage() {
-  const router = useRouter()
-  const { isLoaded, isSignedIn, user } = useUser()
+export default async function RoleRedirectPage() {
+  const dbUser = await getCurrentDbUser()
 
-  useEffect(() => {
-    if (!isLoaded) return
+  if (!dbUser) {
+    redirect("/sign-in")
+  }
 
-    if (!isSignedIn) {
-      router.replace("/sign-in")
-      return
-    }
-
-    const role = user?.publicMetadata?.role as AppRole | undefined
-    router.replace(getDashboardPath(role))
-  }, [isLoaded, isSignedIn, user, router])
-
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="text-center">
-        <h1 className="text-xl font-semibold">Redirecting...</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Please wait while we open your CivicPulse dashboard.
-        </p>
-      </div>
-    </div>
-  )
+  redirect(getDashboardPath(dbUser.role))
 }
