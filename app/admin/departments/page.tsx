@@ -74,8 +74,7 @@ export default async function DepartmentsPage() {
       overdue,
       resolvedThisMonth,
       avgResolutionTime: "N/A",
-      status: "active",
-      workload: getWorkload(assignedReports),
+      status: department.status === "ACTIVE" ? "active" : "inactive",      workload: getWorkload(assignedReports),
     }
   })
 

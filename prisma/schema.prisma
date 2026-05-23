@@ -14,6 +14,11 @@ enum UserRole {
   SUPER_ADMIN
 }
 
+enum DepartmentStatus {
+  ACTIVE
+  INACTIVE
+}
+
 enum ReportStatus {
   SUBMITTED
   VERIFIED
@@ -56,11 +61,12 @@ model User {
 }
 
 model Department {
-  id          String   @id @default(cuid())
-  name        String   @unique
+  id          String           @id @default(cuid())
+  name        String           @unique
   description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  status      DepartmentStatus @default(ACTIVE)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
 
   reports Report[]
 }
