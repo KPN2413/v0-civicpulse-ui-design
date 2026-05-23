@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useTransition } from "react"
+import { useRouter } from "next/navigation"
 import {
   Building2,
   Plus,
@@ -16,6 +17,11 @@ import {
   Activity,
 } from "lucide-react"
 
+import {
+  createDepartmentAction,
+  setDepartmentStatusAction,
+  updateDepartmentAction,
+} from "./actions"
 import { StatCard } from "@/components/dashboard/stat-card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -55,6 +61,7 @@ import {
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
+import { DepartmentStatus } from "@/lib/generated/prisma/enums"
 
 export type DepartmentRow = {
   id: string
@@ -132,10 +139,14 @@ function DeptStatusBadge({
 }
 
 export function DepartmentsClient({ departments }: DepartmentsClientProps) {
+  const router = useRouter()
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [workloadFilter, setWorkloadFilter] = useState<string>("all")
-  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
+  const [editingDepartment, setEditingDepartment] = useState<DepartmentRow | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [isPending, startTransition] = useTransition()
 
   const filteredDepartments = departments.filter((dept) => {
     const query = searchQuery.toLowerCase()
@@ -159,8 +170,64 @@ export function DepartmentsClient({ departments }: DepartmentsClientProps) {
 
   const workloadDepartments = departments.filter((d) => d.status === "active").slice(0, 4)
 
+  function handleCreateDepartment(formData: FormData) {
+    setError(null)
+
+    startTransition(async () => {
+      const result = await createDepartmentAction(formData)
+
+      if (!result.success) {
+        setError(result.error)
+        return
+      }
+
+      setIsCreateDialogOpen(false)
+      router.refresh()
+    })
+  }
+
+  function handleUpdateDepartment(formData: FormData) {
+    setError(null)
+
+    startTransition(async () => {
+      const result = await updateDepartmentAction(formData)
+
+      if (!result.success) {
+        setError(result.error)
+        return
+      }
+
+      setEditingDepartment(null)
+      router.refresh()
+    })
+  }
+
+  function handleToggleStatus(dept: DepartmentRow) {
+    setError(null)
+
+    const nextStatus =
+      dept.status === "active" ? DepartmentStatus.INACTIVE : DepartmentStatus.ACTIVE
+
+    startTransition(async () => {
+      const result = await setDepartmentStatusAction(dept.id, nextStatus)
+
+      if (!result.success) {
+  setError(result.error)
+  return
+}
+
+router.refresh()
+    })
+  }
+
   return (
     <div className="space-y-6">
+      {error ? (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+        </div>
+      ) : null}
+
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-foreground">Departments</h2>
@@ -169,7 +236,7 @@ export function DepartmentsClient({ departments }: DepartmentsClientProps) {
           </p>
         </div>
 
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
           <DialogTrigger asChild>
             <Button className="gap-2">
               <Plus className="h-4 w-4" />
@@ -181,35 +248,94 @@ export function DepartmentsClient({ departments }: DepartmentsClientProps) {
             <DialogHeader>
               <DialogTitle>Add New Department</DialogTitle>
               <DialogDescription>
-                Department creation will be connected in the next CRUD step.
+                Create a new civic department for issue routing.
               </DialogDescription>
             </DialogHeader>
 
-            <div className="grid gap-4 py-4">
+            <form action={handleCreateDepartment} className="space-y-4">
               <div className="grid gap-2">
-                <Label htmlFor="dept-name">Department Name</Label>
-                <Input id="dept-name" placeholder="e.g. Parks & Recreation Department" disabled />
+                <Label htmlFor="create-name">Department Name</Label>
+                <Input id="create-name" name="name" placeholder="e.g. Parks & Recreation" required />
               </div>
 
               <div className="grid gap-2">
-                <Label htmlFor="dept-description">Description</Label>
+                <Label htmlFor="create-description">Description</Label>
                 <Textarea
-                  id="dept-description"
+                  id="create-description"
+                  name="description"
                   placeholder="Brief description of department responsibilities..."
                   rows={3}
-                  disabled
                 />
               </div>
-            </div>
 
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
-                Close
-              </Button>
-            </DialogFooter>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsCreateDialogOpen(false)}
+                  disabled={isPending}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={isPending}>
+                  {isPending ? "Saving..." : "Save Department"}
+                </Button>
+              </DialogFooter>
+            </form>
           </DialogContent>
         </Dialog>
       </div>
+
+      <Dialog open={!!editingDepartment} onOpenChange={(open) => !open && setEditingDepartment(null)}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Edit Department</DialogTitle>
+            <DialogDescription>
+              Update department name and responsibility details.
+            </DialogDescription>
+          </DialogHeader>
+
+          {editingDepartment ? (
+            <form action={handleUpdateDepartment} className="space-y-4">
+              <input type="hidden" name="id" value={editingDepartment.id} />
+
+              <div className="grid gap-2">
+                <Label htmlFor="edit-name">Department Name</Label>
+                <Input
+                  id="edit-name"
+                  name="name"
+                  defaultValue={editingDepartment.name}
+                  required
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="edit-description">Description</Label>
+                <Textarea
+                  id="edit-description"
+                  name="description"
+                  defaultValue={editingDepartment.description}
+                  rows={3}
+                />
+              </div>
+
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setEditingDepartment(null)}
+                  disabled={isPending}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={isPending}>
+                  {isPending ? "Saving..." : "Update Department"}
+                </Button>
+              </DialogFooter>
+            </form>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard
@@ -380,14 +506,23 @@ export function DepartmentsClient({ departments }: DepartmentsClientProps) {
                               <Eye className="h-4 w-4" />
                               View Details
                             </DropdownMenuItem>
-                            <DropdownMenuItem className="gap-2">
+
+                            <DropdownMenuItem
+                              className="gap-2"
+                              onClick={() => setEditingDepartment(dept)}
+                            >
                               <Pencil className="h-4 w-4" />
                               Edit
                             </DropdownMenuItem>
+
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem className="gap-2 text-destructive focus:text-destructive">
+
+                            <DropdownMenuItem
+                              className="gap-2 text-destructive focus:text-destructive"
+                              onClick={() => handleToggleStatus(dept)}
+                            >
                               <PowerOff className="h-4 w-4" />
-                              Deactivate
+                              {dept.status === "active" ? "Deactivate" : "Activate"}
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
