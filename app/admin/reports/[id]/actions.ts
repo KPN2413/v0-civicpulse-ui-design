@@ -121,6 +121,7 @@ export async function assignDepartmentAction(formData: FormData): Promise<void> 
       select: {
         id: true,
         departmentId: true,
+        firstAssignedAt: true,
         status: true,
       },
     })
@@ -156,6 +157,7 @@ export async function assignDepartmentAction(formData: FormData): Promise<void> 
         : report.status
 
     const isReassignment = Boolean(report.departmentId)
+    const firstAssignedAt = new Date()
 
     await tx.report.update({
       where: {
@@ -164,6 +166,9 @@ export async function assignDepartmentAction(formData: FormData): Promise<void> 
       data: {
         departmentId: department.id,
         status: nextStatus,
+        ...(!report.firstAssignedAt && nextStatus === ReportStatus.ASSIGNED
+          ? { firstAssignedAt }
+          : {}),
       },
     })
 

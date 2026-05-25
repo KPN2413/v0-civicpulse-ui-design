@@ -87,9 +87,11 @@ model Report {
   departmentId String?
   officerId    String?
 
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  resolvedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  slaDueAt        DateTime?
+  firstAssignedAt DateTime?
+  resolvedAt      DateTime?
 
   citizen    User        @relation("CitizenReports", fields: [citizenId], references: [id])
   officer    User?       @relation("OfficerReports", fields: [officerId], references: [id])

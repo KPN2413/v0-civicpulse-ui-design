@@ -47,6 +47,17 @@ function getPriority(category: IssueCategory): ReportPriority {
   return ReportPriority.LOW
 }
 
+function getSlaDueAt(createdAt: Date, priority: ReportPriority) {
+  const hoursByPriority: Record<ReportPriority, number> = {
+    LOW: 24 * 7,
+    MEDIUM: 24 * 3,
+    HIGH: 24,
+    CRITICAL: 24,
+  }
+
+  return new Date(createdAt.getTime() + hoursByPriority[priority] * 60 * 60 * 1000)
+}
+
 export async function createReportAction(formData: FormData) {
   const dbUser = await getCurrentDbUser()
 
@@ -73,6 +84,10 @@ export async function createReportAction(formData: FormData) {
     return { success: false, error: "Invalid report category." }
   }
 
+  const priority = getPriority(category)
+  const createdAt = new Date()
+  const slaDueAt = getSlaDueAt(createdAt, priority)
+
   const department = await prisma.department.findFirst({
     where: {
       name: departmentMap[category],
@@ -86,11 +101,13 @@ export async function createReportAction(formData: FormData) {
         title: parsed.data.title,
         description: parsed.data.description,
         category,
-        priority: getPriority(category),
+        priority,
         status: ReportStatus.SUBMITTED,
         latitude: parsed.data.latitude,
         longitude: parsed.data.longitude,
         address: parsed.data.address,
+        createdAt,
+        slaDueAt,
         citizenId: dbUser.id,
         departmentId: department?.id,
         statusHistory: {
