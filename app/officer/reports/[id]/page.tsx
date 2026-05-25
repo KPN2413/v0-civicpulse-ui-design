@@ -1,76 +1,467 @@
 import Link from "next/link"
-import { ArrowLeft, CalendarClock, CheckCircle, Clock, ImageIcon, MapPin, Save, Wrench } from "lucide-react"
-import { mockReports } from "@/lib/mock-data"
+import { notFound } from "next/navigation"
+import {
+  ArrowLeft,
+  Building2,
+  Calendar,
+  CheckCircle,
+  Circle,
+  FileText,
+  History,
+  Image as ImageIcon,
+  Mail,
+  MapPin,
+  Shield,
+  User,
+  UserCheck,
+} from "lucide-react"
+
+import { categoryToLabel, priorityToUi, statusToUi } from "@/app/admin/reports/report-mappers"
+import { PriorityBadge, StatusBadge } from "@/components/dashboard/status-badge"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Label } from "@/components/ui/label"
-import { Progress } from "@/components/ui/progress"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Textarea } from "@/components/ui/textarea"
-import { PriorityBadge, StatusBadge } from "@/components/dashboard/status-badge"
+import { getCurrentDbUser } from "@/lib/current-user"
+import { ReportStatus, UserRole } from "@/lib/generated/prisma/enums"
+import { prisma } from "@/lib/prisma"
 
-const report = mockReports.find((item) => item.assignedTo) ?? mockReports[1]
+export const dynamic = "force-dynamic"
 
-function formatDate(dateString?: string) {
-  if (!dateString) return "Not set"
-  return new Date(dateString).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+function formatDateTime(date: Date) {
+  return date.toLocaleString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
 }
 
-export default function OfficerReportDetailsPage() {
+function statusLabel(status: ReportStatus) {
+  const labels: Record<ReturnType<typeof statusToUi>, string> = {
+    pending: "Pending",
+    verified: "Verified",
+    assigned: "Assigned",
+    "in-progress": "In Progress",
+    resolved: "Resolved",
+    rejected: "Rejected",
+  }
+
+  return labels[statusToUi(status)]
+}
+
+export default async function OfficerReportDetailsPage({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}) {
+  const { id } = await params
+  const dbUser = await getCurrentDbUser()
+
+  if (!dbUser || dbUser.role !== UserRole.DEPARTMENT_OFFICER) {
+    notFound()
+  }
+
+  const report = await prisma.report.findFirst({
+    where: {
+      id,
+      officerId: dbUser.id,
+    },
+    include: {
+      citizen: {
+        select: {
+          name: true,
+          email: true,
+        },
+      },
+      department: {
+        select: {
+          name: true,
+          description: true,
+        },
+      },
+      officer: {
+        select: {
+          name: true,
+          email: true,
+        },
+      },
+      statusHistory: {
+        orderBy: {
+          createdAt: "asc",
+        },
+      },
+      images: {
+        orderBy: {
+          createdAt: "asc",
+        },
+      },
+      auditLogs: {
+        orderBy: {
+          createdAt: "desc",
+        },
+        include: {
+          user: {
+            select: {
+              name: true,
+              email: true,
+            },
+          },
+        },
+      },
+    },
+  })
+
+  if (!report) {
+    notFound()
+  }
+
+  const timelineItems =
+    report.statusHistory.length > 0
+      ? report.statusHistory
+      : [
+          {
+            id: "current-status",
+            oldStatus: null,
+            newStatus: report.status,
+            note: "Current report status.",
+            createdAt: report.createdAt,
+            reportId: report.id,
+          },
+        ]
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <Button asChild variant="ghost" size="sm" className="mb-2"><Link href="/officer/reports"><ArrowLeft className="mr-2 h-4 w-4" />Back to Assigned Reports</Link></Button>
-          <h2 className="text-2xl font-bold tracking-tight text-foreground">Assigned Report Details</h2>
-          <p className="text-muted-foreground">Update work progress, SLA status, and resolution notes.</p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-4">
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/officer/reports" className="gap-2">
+              <ArrowLeft className="h-4 w-4" />
+              Back to Assigned Reports
+            </Link>
+          </Button>
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight text-foreground">
+              {report.title}
+            </h2>
+            <p className="text-muted-foreground">
+              Report ID: <span className="font-mono text-primary">{report.id}</span>
+            </p>
+          </div>
         </div>
-        <Button className="gap-2"><CheckCircle className="h-4 w-4" />Mark as Resolved</Button>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusBadge status={statusToUi(report.status)} />
+          <PriorityBadge priority={priorityToUi(report.priority)} />
+        </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
           <Card>
-            <CardHeader><CardTitle>{report.title}</CardTitle><CardDescription>{report.id} • Assigned to {report.department ?? "Department Team"}</CardDescription></CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-sm text-muted-foreground">{report.description}</p>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <div><p className="text-xs text-muted-foreground">Category</p><p className="font-medium">{report.category}</p></div>
-                <div><p className="text-xs text-muted-foreground">Priority</p><PriorityBadge priority={report.priority} /></div>
-                <div><p className="text-xs text-muted-foreground">Status</p><StatusBadge status={report.status} /></div>
-                <div><p className="text-xs text-muted-foreground">SLA</p><p className="font-medium">{formatDate(report.slaDeadline)}</p></div>
+            <CardHeader>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <FileText className="h-5 w-5 text-primary" />
+                    Report Details
+                  </CardTitle>
+                  <CardDescription>
+                    Current assignment and issue information from PostgreSQL.
+                  </CardDescription>
+                </div>
+                <Badge variant="outline" className="font-mono text-primary">
+                  {report.id}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-muted-foreground">Description</p>
+                <p className="text-sm leading-relaxed text-foreground">
+                  {report.description}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Category:</span>
+                  <Badge variant="secondary">{categoryToLabel(report.category)}</Badge>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Status:</span>
+                  <StatusBadge status={statusToUi(report.status)} />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Priority:</span>
+                  <PriorityBadge priority={priorityToUi(report.priority)} />
+                </div>
+              </div>
+
+              <div className="rounded-lg border bg-muted/30 p-4">
+                <h4 className="mb-3 text-sm font-medium text-foreground">
+                  Citizen Information
+                </h4>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="flex items-center gap-2 text-sm">
+                    <User className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-muted-foreground">Name:</span>
+                    <span className="font-medium">
+                      {report.citizen.name ?? "Unnamed citizen"}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <Mail className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-muted-foreground">Email:</span>
+                    <span className="font-medium">{report.citizen.email}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Department</p>
+                  <div className="mt-1 flex items-center gap-2 text-sm text-foreground">
+                    <Building2 className="h-4 w-4 text-muted-foreground" />
+                    {report.department?.name ?? "Unassigned"}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Assigned Officer</p>
+                  <div className="mt-1 flex items-center gap-2 text-sm text-foreground">
+                    <UserCheck className="h-4 w-4 text-muted-foreground" />
+                    {report.officer?.name ?? "Not assigned"}
+                  </div>
+                  {report.officer?.email ? (
+                    <p className="mt-1 text-xs text-muted-foreground">{report.officer.email}</p>
+                  ) : null}
+                </div>
+
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Submitted</p>
+                  <div className="mt-1 flex items-center gap-2 text-sm text-foreground">
+                    <Calendar className="h-4 w-4 text-muted-foreground" />
+                    {formatDateTime(report.createdAt)}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Resolved</p>
+                  <div className="mt-1 flex items-center gap-2 text-sm text-foreground">
+                    <CheckCircle className="h-4 w-4 text-muted-foreground" />
+                    {report.resolvedAt ? formatDateTime(report.resolvedAt) : "Not resolved yet"}
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <Card><CardHeader><CardTitle className="flex items-center gap-2"><ImageIcon className="h-5 w-5" />Issue Photo</CardTitle></CardHeader><CardContent><div className="flex h-64 items-center justify-center rounded-lg border bg-muted/40 text-muted-foreground">Photo placeholder</div></CardContent></Card>
-            <Card><CardHeader><CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5" />Location</CardTitle></CardHeader><CardContent><div className="mb-4 flex h-64 items-center justify-center rounded-lg border bg-muted/40"><MapPin className="h-10 w-10 text-primary" /></div><p className="text-sm font-medium">{report.location}</p><p className="text-xs text-muted-foreground">Lat: 28.6139 • Lng: 77.2090</p></CardContent></Card>
+          <div className="grid gap-6 md:grid-cols-2">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <ImageIcon className="h-4 w-4 text-primary" />
+                  Issue Images
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {report.images.length > 0 ? (
+                  <div className="grid gap-3">
+                    {report.images.map((image) => (
+                      <img
+                        key={image.id}
+                        src={image.imageUrl}
+                        alt="Report evidence"
+                        className="aspect-video w-full rounded-lg border object-cover"
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex aspect-video items-center justify-center rounded-lg border-2 border-dashed border-border bg-muted/50">
+                    <div className="text-center">
+                      <ImageIcon className="mx-auto h-10 w-10 text-muted-foreground/50" />
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        No images uploaded for this report.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <MapPin className="h-4 w-4 text-primary" />
+                  Location
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="relative flex aspect-video items-center justify-center rounded-lg border bg-gradient-to-br from-primary/5 to-accent/5">
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="flex flex-col items-center">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-destructive shadow-lg">
+                        <MapPin className="h-5 w-5 text-destructive-foreground" />
+                      </div>
+                      <div className="mt-1 h-4 w-0.5 bg-destructive" />
+                    </div>
+                  </div>
+                  <p className="absolute bottom-2 right-2 text-xs text-muted-foreground">
+                    Map placeholder
+                  </p>
+                </div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-start gap-2">
+                    <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="text-muted-foreground">
+                      {report.address ?? "Location not provided"}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+                    <span>Lat: {report.latitude}</span>
+                    <span>Long: {report.longitude}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </div>
 
           <Card>
-            <CardHeader><CardTitle>Recent Updates</CardTitle><CardDescription>Progress history from the department team.</CardDescription></CardHeader>
-            <CardContent className="space-y-4">
-              {["Report assigned to department", "Officer inspection completed", "Repair work scheduled"].map((item, index) => (<div key={item} className="flex gap-3"><div className="mt-1 h-2 w-2 rounded-full bg-primary" /><div><p className="font-medium">{item}</p><p className="text-sm text-muted-foreground">Update #{index + 1} recorded in mock UI.</p></div></div>))}
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <History className="h-4 w-4 text-primary" />
+                Status Timeline
+              </CardTitle>
+              <CardDescription>Recorded status changes for this report.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-0">
+                {timelineItems.map((item, index) => (
+                  <div key={item.id} className="flex gap-4 pb-6 last:pb-0">
+                    <div className="flex flex-col items-center">
+                      <div
+                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 ${
+                          index === timelineItems.length - 1
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-accent bg-accent text-accent-foreground"
+                        }`}
+                      >
+                        {index === timelineItems.length - 1 ? (
+                          <Circle className="h-4 w-4" />
+                        ) : (
+                          <CheckCircle className="h-4 w-4" />
+                        )}
+                      </div>
+                      {index < timelineItems.length - 1 ? (
+                        <div className="h-full w-0.5 bg-border" />
+                      ) : null}
+                    </div>
+                    <div className="flex-1 pb-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <StatusBadge status={statusToUi(item.newStatus)} />
+                        {item.oldStatus ? (
+                          <span className="text-xs text-muted-foreground">
+                            from {statusLabel(item.oldStatus)}
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="mt-2 text-sm text-foreground">
+                        {item.note ?? "Status updated."}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {formatDateTime(item.createdAt)}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </CardContent>
           </Card>
         </div>
 
         <div className="space-y-6">
           <Card>
-            <CardHeader><CardTitle className="flex items-center gap-2"><CalendarClock className="h-5 w-5" />SLA Tracking</CardTitle></CardHeader>
-            <CardContent className="space-y-3"><div className="flex justify-between text-sm"><span>Progress</span><span>62%</span></div><Progress value={62} /><p className="text-sm text-muted-foreground">Deadline: {formatDate(report.slaDeadline)}</p></CardContent>
-          </Card>
-          <Card>
-            <CardHeader><CardTitle className="flex items-center gap-2"><Wrench className="h-5 w-5" />Work Update</CardTitle><CardDescription>Add latest progress details.</CardDescription></CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2"><Label>Status</Label><Select defaultValue="in-progress"><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="assigned">Assigned</SelectItem><SelectItem value="in-progress">In Progress</SelectItem><SelectItem value="resolved">Resolved</SelectItem></SelectContent></Select></div>
-              <div className="space-y-2"><Label>Progress Update</Label><Textarea placeholder="Add inspection/work update..." /></div>
-              <div className="space-y-2"><Label>Resolution Note</Label><Textarea placeholder="Add note after completion..." /></div>
-              <Button className="w-full gap-2"><Save className="h-4 w-4" />Save Update</Button>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Shield className="h-4 w-4 text-primary" />
+                Assignment Summary
+              </CardTitle>
+              <CardDescription>Current routing and ownership data.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm">
+              <div>
+                <p className="font-medium text-muted-foreground">Department</p>
+                <p className="mt-1 text-foreground">
+                  {report.department?.name ?? "Unassigned"}
+                </p>
+                {report.department?.description ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {report.department.description}
+                  </p>
+                ) : null}
+              </div>
+              <div>
+                <p className="font-medium text-muted-foreground">Officer</p>
+                <p className="mt-1 text-foreground">
+                  {report.officer?.name ?? "Not assigned"}
+                </p>
+                {report.officer?.email ? (
+                  <p className="mt-1 text-xs text-muted-foreground">{report.officer.email}</p>
+                ) : null}
+              </div>
+              <div>
+                <p className="font-medium text-muted-foreground">Created</p>
+                <p className="mt-1 text-foreground">{formatDateTime(report.createdAt)}</p>
+              </div>
+              <div>
+                <p className="font-medium text-muted-foreground">Resolved</p>
+                <p className="mt-1 text-foreground">
+                  {report.resolvedAt ? formatDateTime(report.resolvedAt) : "Not resolved yet"}
+                </p>
+              </div>
             </CardContent>
           </Card>
-          <Card><CardContent className="pt-6"><Clock className="mb-3 h-5 w-5 text-warning" /><p className="font-medium">Within SLA</p><p className="text-sm text-muted-foreground">This report is currently not overdue.</p></CardContent></Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <History className="h-4 w-4 text-primary" />
+                Audit Logs
+              </CardTitle>
+              <CardDescription>Recent system and admin log entries.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {report.auditLogs.length > 0 ? (
+                <div className="space-y-3">
+                  {report.auditLogs.map((log) => (
+                    <div
+                      key={log.id}
+                      className="flex items-start gap-3 border-b pb-3 last:border-0 last:pb-0"
+                    >
+                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
+                        <User className="h-3.5 w-3.5 text-muted-foreground" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium">{log.action}</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {log.user?.name ?? log.user?.email ?? "System"} - {log.entity}
+                          {log.entityId ? ` ${log.entityId}` : ""}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {formatDateTime(log.createdAt)}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No audit logs recorded for this report yet.
+                </p>
+              )}
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>
