@@ -16,14 +16,29 @@ import {
   UserCheck,
 } from "lucide-react"
 
+import {
+  assignDepartmentAction,
+  rejectReportAction,
+  resolveReportAction,
+  verifyReportAction,
+} from "./actions"
 import { categoryToLabel, priorityToUi, statusToUi } from "../report-mappers"
 
 import { PriorityBadge, StatusBadge } from "@/components/dashboard/status-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
 import { prisma } from "@/lib/prisma"
-import { ReportStatus } from "@/lib/generated/prisma/enums"
+import { DepartmentStatus, ReportStatus } from "@/lib/generated/prisma/enums"
 
 export const dynamic = "force-dynamic"
 
@@ -57,58 +72,87 @@ export default async function AdminReportReviewPage({
 }) {
   const { id } = await params
 
-  const report = await prisma.report.findUnique({
-    where: {
-      id,
-    },
-    include: {
-      citizen: {
-        select: {
-          name: true,
-          email: true,
-        },
+  const [report, activeDepartments] = await Promise.all([
+    prisma.report.findUnique({
+      where: {
+        id,
       },
-      department: {
-        select: {
-          name: true,
-          description: true,
+      include: {
+        citizen: {
+          select: {
+            name: true,
+            email: true,
+          },
         },
-      },
-      officer: {
-        select: {
-          name: true,
-          email: true,
+        department: {
+          select: {
+            name: true,
+            description: true,
+          },
         },
-      },
-      statusHistory: {
-        orderBy: {
-          createdAt: "asc",
+        officer: {
+          select: {
+            name: true,
+            email: true,
+          },
         },
-      },
-      images: {
-        orderBy: {
-          createdAt: "asc",
+        statusHistory: {
+          orderBy: {
+            createdAt: "asc",
+          },
         },
-      },
-      auditLogs: {
-        orderBy: {
-          createdAt: "desc",
+        images: {
+          orderBy: {
+            createdAt: "asc",
+          },
         },
-        include: {
-          user: {
-            select: {
-              name: true,
-              email: true,
+        auditLogs: {
+          orderBy: {
+            createdAt: "desc",
+          },
+          include: {
+            user: {
+              select: {
+                name: true,
+                email: true,
+              },
             },
           },
         },
       },
-    },
-  })
+    }),
+    prisma.department.findMany({
+      where: {
+        status: DepartmentStatus.ACTIVE,
+      },
+      orderBy: {
+        name: "asc",
+      },
+      select: {
+        id: true,
+        name: true,
+      },
+    }),
+  ])
 
   if (!report) {
     notFound()
   }
+
+  const isFinalReport =
+    report.status === ReportStatus.REJECTED || report.status === ReportStatus.RESOLVED
+
+  const canVerify =
+    report.status === ReportStatus.SUBMITTED || report.status === ReportStatus.REOPENED
+
+  const canResolve =
+    report.status === ReportStatus.ASSIGNED || report.status === ReportStatus.IN_PROGRESS
+
+  const selectedActiveDepartment = activeDepartments.some(
+    (department) => department.id === report.departmentId
+  )
+    ? report.departmentId ?? undefined
+    : undefined
 
   const timelineItems =
     report.statusHistory.length > 0
@@ -129,7 +173,7 @@ export default async function AdminReportReviewPage({
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-4">
           <Button variant="outline" size="sm" asChild>
-            <Link href="./" className="gap-2">
+            <Link href="../" className="gap-2">
               <ArrowLeft className="h-4 w-4" />
               Back to All Reports
             </Link>
@@ -379,6 +423,101 @@ export default async function AdminReportReviewPage({
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Shield className="h-4 w-4 text-primary" />
+                Workflow Actions
+              </CardTitle>
+              <CardDescription>
+                Update report review, assignment, rejection, or resolution status.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {isFinalReport ? (
+                <p className="rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                  This report is final and no workflow actions are available.
+                </p>
+              ) : (
+                <>
+                  {canVerify ? (
+                    <form action={verifyReportAction}>
+                      <input type="hidden" name="reportId" value={report.id} />
+                      <Button type="submit" className="w-full gap-2">
+                        <CheckCircle className="h-4 w-4" />
+                        Verify Report
+                      </Button>
+                    </form>
+                  ) : null}
+
+                  <form action={assignDepartmentAction} className="space-y-3">
+                    <input type="hidden" name="reportId" value={report.id} />
+                    <div className="space-y-2">
+                      <Label htmlFor="departmentId">Department</Label>
+                      <Select
+                        name="departmentId"
+                        defaultValue={selectedActiveDepartment}
+                        disabled={activeDepartments.length === 0}
+                      >
+                        <SelectTrigger id="departmentId">
+                          <SelectValue placeholder="Select department" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {activeDepartments.map((department) => (
+                            <SelectItem key={department.id} value={department.id}>
+                              {department.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {activeDepartments.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          No active departments are available.
+                        </p>
+                      ) : null}
+                    </div>
+                    <Button
+                      type="submit"
+                      variant="outline"
+                      className="w-full gap-2"
+                      disabled={activeDepartments.length === 0}
+                    >
+                      <Building2 className="h-4 w-4" />
+                      {report.departmentId ? "Reassign Department" : "Assign Department"}
+                    </Button>
+                  </form>
+
+                  {canResolve ? (
+                    <form action={resolveReportAction}>
+                      <input type="hidden" name="reportId" value={report.id} />
+                      <Button type="submit" className="w-full gap-2">
+                        <CheckCircle className="h-4 w-4" />
+                        Resolve Report
+                      </Button>
+                    </form>
+                  ) : null}
+
+                  <form action={rejectReportAction} className="space-y-3 border-t pt-4">
+                    <input type="hidden" name="reportId" value={report.id} />
+                    <div className="space-y-2">
+                      <Label htmlFor="reason">Reject Reason</Label>
+                      <Textarea
+                        id="reason"
+                        name="reason"
+                        placeholder="Explain why this report is being rejected..."
+                        rows={3}
+                        required
+                      />
+                    </div>
+                    <Button type="submit" variant="destructive" className="w-full">
+                      Reject Report
+                    </Button>
+                  </form>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Shield className="h-4 w-4 text-primary" />
                 Assignment Summary
               </CardTitle>
               <CardDescription>Current routing and ownership data.</CardDescription>
@@ -433,7 +572,7 @@ export default async function AdminReportReviewPage({
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium">{log.action}</p>
                         <p className="mt-0.5 text-xs text-muted-foreground">
-                          {log.user?.name ?? log.user?.email ?? "System"} · {log.entity}
+                          {log.user?.name ?? log.user?.email ?? "System"} - {log.entity}
                           {log.entityId ? ` ${log.entityId}` : ""}
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
