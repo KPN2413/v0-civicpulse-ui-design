@@ -19,6 +19,7 @@ import {
 
 import { PriorityBadge, StatusBadge } from "@/components/dashboard/status-badge"
 import { StatCard } from "@/components/dashboard/stat-card"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -37,6 +38,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { getSlaBadgeClassName, type SlaState } from "@/lib/sla"
 
 export type CitizenReportRow = {
   id: string
@@ -47,7 +49,10 @@ export type CitizenReportRow = {
   status: "pending" | "verified" | "assigned" | "in-progress" | "resolved" | "rejected"
   priority: "low" | "medium" | "high" | "critical"
   createdAt: string
-  slaDeadline: string
+  slaDueAt: string | null
+  slaState: SlaState
+  slaLabel: string
+  slaTimeText: string
   department: string
 }
 
@@ -114,7 +119,7 @@ export function CitizenReportsClient({ reports }: CitizenReportsClientProps) {
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-foreground">My Reports</h2>
           <p className="text-muted-foreground">
-            Track the status, priority, SLA deadline, and resolution progress of your submitted civic issues.
+            Track the status, priority, SLA, and resolution progress of your submitted civic issues.
           </p>
         </div>
 
@@ -241,7 +246,7 @@ export function CitizenReportsClient({ reports }: CitizenReportsClientProps) {
                     <TableHead>Status</TableHead>
                     <TableHead className="hidden md:table-cell">Priority</TableHead>
                     <TableHead className="hidden lg:table-cell">Submitted</TableHead>
-                    <TableHead className="hidden lg:table-cell">SLA Deadline</TableHead>
+                    <TableHead className="hidden lg:table-cell">SLA</TableHead>
                     <TableHead className="hidden xl:table-cell">Department</TableHead>
                     <TableHead className="text-right">Action</TableHead>
                   </TableRow>
@@ -281,9 +286,20 @@ export function CitizenReportsClient({ reports }: CitizenReportsClientProps) {
                       </TableCell>
 
                       <TableCell className="hidden lg:table-cell">
-                        <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                          <AlertCircle className="h-3 w-3" />
-                          {formatDate(report.slaDeadline)}
+                        <div className="flex flex-col items-start gap-1.5">
+                          <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                            <AlertCircle className="h-3 w-3" />
+                            {report.slaDueAt ? formatDate(report.slaDueAt) : "Not set"}
+                          </div>
+                          <Badge
+                            variant="outline"
+                            className={getSlaBadgeClassName(report.slaState)}
+                          >
+                            {report.slaLabel}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            {report.slaTimeText}
+                          </span>
                         </div>
                       </TableCell>
 

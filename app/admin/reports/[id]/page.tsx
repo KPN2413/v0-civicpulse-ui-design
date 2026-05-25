@@ -5,6 +5,7 @@ import {
   Building2,
   Calendar,
   CheckCircle,
+  Clock,
   Circle,
   FileText,
   History,
@@ -39,6 +40,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { prisma } from "@/lib/prisma"
 import { DepartmentStatus, ReportStatus } from "@/lib/generated/prisma/enums"
+import { getSlaBadgeClassName, getSlaDisplay } from "@/lib/sla"
 
 export const dynamic = "force-dynamic"
 
@@ -147,6 +149,11 @@ export default async function AdminReportReviewPage({
 
   const canResolve =
     report.status === ReportStatus.ASSIGNED || report.status === ReportStatus.IN_PROGRESS
+
+  const sla = getSlaDisplay({
+    status: report.status,
+    slaDueAt: report.slaDueAt,
+  })
 
   const selectedActiveDepartment = activeDepartments.some(
     (department) => department.id === report.departmentId
@@ -289,6 +296,20 @@ export default async function AdminReportReviewPage({
                   <div className="mt-1 flex items-center gap-2 text-sm text-foreground">
                     <CheckCircle className="h-4 w-4 text-muted-foreground" />
                     {report.resolvedAt ? formatDateTime(report.resolvedAt) : "Not resolved yet"}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">SLA Due</p>
+                  <div className="mt-1 flex items-center gap-2 text-sm text-foreground">
+                    <Clock className="h-4 w-4 text-muted-foreground" />
+                    {sla.dueAt ? formatDateTime(sla.dueAt) : "Not set"}
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Badge variant="outline" className={getSlaBadgeClassName(sla.state)}>
+                      {sla.label}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">{sla.timeText}</span>
                   </div>
                 </div>
               </div>

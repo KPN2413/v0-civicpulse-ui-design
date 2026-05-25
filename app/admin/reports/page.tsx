@@ -3,6 +3,7 @@ import { categoryToLabel, priorityToUi, statusToUi } from "./report-mappers"
 
 import { prisma } from "@/lib/prisma"
 import { ReportStatus } from "@/lib/generated/prisma/enums"
+import { getSlaDisplay } from "@/lib/sla"
 
 export const dynamic = "force-dynamic"
 
@@ -32,21 +33,32 @@ export default async function AdminReportsPage() {
     },
   })
 
-  const reportRows: AdminReportRow[] = reports.map((report) => ({
-    id: report.id,
-    title: report.title,
-    category: categoryToLabel(report.category),
-    status: statusToUi(report.status),
-    priority: priorityToUi(report.priority),
-    location: report.address ?? "Location not provided",
-    citizenName: report.citizen.name ?? "Unnamed citizen",
-    citizenEmail: report.citizen.email,
-    departmentName: report.department?.name ?? "Unassigned",
-    officerName: report.officer?.name ?? null,
-    officerEmail: report.officer?.email ?? null,
-    createdAt: report.createdAt.toISOString(),
-    resolvedAt: report.resolvedAt?.toISOString() ?? null,
-  }))
+  const reportRows: AdminReportRow[] = reports.map((report) => {
+    const sla = getSlaDisplay({
+      status: report.status,
+      slaDueAt: report.slaDueAt,
+    })
+
+    return {
+      id: report.id,
+      title: report.title,
+      category: categoryToLabel(report.category),
+      status: statusToUi(report.status),
+      priority: priorityToUi(report.priority),
+      location: report.address ?? "Location not provided",
+      citizenName: report.citizen.name ?? "Unnamed citizen",
+      citizenEmail: report.citizen.email,
+      departmentName: report.department?.name ?? "Unassigned",
+      officerName: report.officer?.name ?? null,
+      officerEmail: report.officer?.email ?? null,
+      createdAt: report.createdAt.toISOString(),
+      resolvedAt: report.resolvedAt?.toISOString() ?? null,
+      slaDueAt: sla.dueAt?.toISOString() ?? null,
+      slaState: sla.state,
+      slaLabel: sla.label,
+      slaTimeText: sla.timeText,
+    }
+  })
 
   const stats: AdminReportsStats = {
     total: reports.length,

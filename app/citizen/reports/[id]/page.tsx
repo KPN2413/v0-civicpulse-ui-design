@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { getCurrentDbUser } from "@/lib/current-user"
 import { prisma } from "@/lib/prisma"
+import { getSlaBadgeClassName, getSlaDisplay } from "@/lib/sla"
 import {
   IssueCategory,
   ReportPriority,
@@ -61,23 +62,6 @@ function formatDateTime(date: Date) {
   })
 }
 
-function getSlaDeadline(createdAt: Date, priority: ReportPriority) {
-  const deadline = new Date(createdAt)
-
-  if (priority === ReportPriority.HIGH || priority === ReportPriority.CRITICAL) {
-    deadline.setDate(deadline.getDate() + 1)
-    return deadline
-  }
-
-  if (priority === ReportPriority.MEDIUM) {
-    deadline.setDate(deadline.getDate() + 3)
-    return deadline
-  }
-
-  deadline.setDate(deadline.getDate() + 7)
-  return deadline
-}
-
 export default async function CitizenReportDetailsPage({
   params,
 }: {
@@ -111,7 +95,10 @@ export default async function CitizenReportDetailsPage({
     notFound()
   }
 
-  const slaDeadline = getSlaDeadline(report.createdAt, report.priority)
+  const sla = getSlaDisplay({
+    status: report.status,
+    slaDueAt: report.slaDueAt,
+  })
 
   return (
     <div className="space-y-6">
@@ -132,9 +119,12 @@ export default async function CitizenReportDetailsPage({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <StatusBadge status={statusToUi(report.status)} />
           <PriorityBadge priority={priorityToUi(report.priority)} />
+          <Badge variant="outline" className={getSlaBadgeClassName(sla.state)}>
+            {sla.label}
+          </Badge>
         </div>
       </div>
 
@@ -182,10 +172,16 @@ export default async function CitizenReportDetailsPage({
                 </div>
 
                 <div>
-                  <p className="text-sm font-medium text-muted-foreground">SLA Deadline</p>
+                  <p className="text-sm font-medium text-muted-foreground">SLA Due</p>
                   <div className="mt-1 flex items-center gap-2 text-foreground">
                     <Clock className="h-4 w-4 text-muted-foreground" />
-                    {formatDateTime(slaDeadline)}
+                    {sla.dueAt ? formatDateTime(sla.dueAt) : "Not set"}
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Badge variant="outline" className={getSlaBadgeClassName(sla.state)}>
+                      {sla.label}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">{sla.timeText}</span>
                   </div>
                 </div>
               </div>

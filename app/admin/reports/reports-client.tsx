@@ -38,6 +38,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { getSlaBadgeClassName, type SlaState } from "@/lib/sla"
 
 export type AdminReportRow = {
   id: string
@@ -53,6 +54,10 @@ export type AdminReportRow = {
   officerEmail: string | null
   createdAt: string
   resolvedAt: string | null
+  slaDueAt: string | null
+  slaState: SlaState
+  slaLabel: string
+  slaTimeText: string
 }
 
 export type AdminReportsStats = {
@@ -299,7 +304,7 @@ export function AdminReportsClient({ reports, stats }: AdminReportsClientProps) 
                     <TableHead className="min-w-[220px]">Report</TableHead>
                     <TableHead className="hidden lg:table-cell">Citizen</TableHead>
                     <TableHead className="hidden md:table-cell">Category</TableHead>
-                    <TableHead>Status</TableHead>
+                    <TableHead>Status / SLA</TableHead>
                     <TableHead className="hidden sm:table-cell">Priority</TableHead>
                     <TableHead className="hidden xl:table-cell">Department</TableHead>
                     <TableHead className="hidden md:table-cell">Submitted</TableHead>
@@ -340,7 +345,23 @@ export function AdminReportsClient({ reports, stats }: AdminReportsClientProps) 
                         <Badge variant="secondary">{report.category}</Badge>
                       </TableCell>
                       <TableCell>
-                        <StatusBadge status={report.status} />
+                        <div className="flex flex-col items-start gap-1.5">
+                          <StatusBadge status={report.status} />
+                          <Badge
+                            variant="outline"
+                            className={getSlaBadgeClassName(report.slaState)}
+                          >
+                            {report.slaLabel}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            {report.slaTimeText}
+                          </span>
+                          {report.slaDueAt ? (
+                            <span className="text-xs text-muted-foreground">
+                              SLA: {formatDate(report.slaDueAt)}
+                            </span>
+                          ) : null}
+                        </div>
                       </TableCell>
                       <TableCell className="hidden sm:table-cell">
                         <PriorityBadge priority={report.priority} />

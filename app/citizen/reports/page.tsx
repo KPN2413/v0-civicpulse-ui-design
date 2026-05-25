@@ -3,6 +3,7 @@ import { redirect } from "next/navigation"
 import { CitizenReportsClient, type CitizenReportRow } from "./reports-client"
 import { getCurrentDbUser } from "@/lib/current-user"
 import { prisma } from "@/lib/prisma"
+import { getSlaDisplay } from "@/lib/sla"
 import {
   IssueCategory,
   ReportPriority,
@@ -38,23 +39,6 @@ function categoryToLabel(category: IssueCategory) {
   return labels[category]
 }
 
-function getSlaDeadline(createdAt: Date, priority: ReportPriority) {
-  const deadline = new Date(createdAt)
-
-  if (priority === ReportPriority.HIGH || priority === ReportPriority.CRITICAL) {
-    deadline.setDate(deadline.getDate() + 1)
-    return deadline
-  }
-
-  if (priority === ReportPriority.MEDIUM) {
-    deadline.setDate(deadline.getDate() + 3)
-    return deadline
-  }
-
-  deadline.setDate(deadline.getDate() + 7)
-  return deadline
-}
-
 export default async function MyReportsPage() {
   const dbUser = await getCurrentDbUser()
 
@@ -74,18 +58,28 @@ export default async function MyReportsPage() {
     },
   })
 
-  const reportRows: CitizenReportRow[] = reports.map((report) => ({
-    id: report.id,
-    title: report.title,
-    description: report.description,
-    category: categoryToLabel(report.category),
-    location: report.address ?? "Location not provided",
-    status: statusToUi(report.status),
-    priority: priorityToUi(report.priority),
-    createdAt: report.createdAt.toISOString(),
-    slaDeadline: getSlaDeadline(report.createdAt, report.priority).toISOString(),
-    department: report.department?.name ?? "Not assigned",
-  }))
+  const reportRows: CitizenReportRow[] = reports.map((report) => {
+    const sla = getSlaDisplay({
+      status: report.status,
+      slaDueAt: report.slaDueAt,
+    })
+
+    return {
+      id: report.id,
+      title: report.title,
+      description: report.description,
+      category: categoryToLabel(report.category),
+      location: report.address ?? "Location not provided",
+      status: statusToUi(report.status),
+      priority: priorityToUi(report.priority),
+      createdAt: report.createdAt.toISOString(),
+      slaDueAt: sla.dueAt?.toISOString() ?? null,
+      slaState: sla.state,
+      slaLabel: sla.label,
+      slaTimeText: sla.timeText,
+      department: report.department?.name ?? "Not assigned",
+    }
+  })
 
   return <CitizenReportsClient reports={reportRows} />
 }
