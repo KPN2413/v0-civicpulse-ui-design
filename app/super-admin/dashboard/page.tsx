@@ -1,14 +1,14 @@
-"use client"
-
 import {
-  Users,
-  Building2,
-  ClipboardList,
   AlertTriangle,
-  TrendingUp,
+  Activity,
+  Building2,
+  CheckCircle,
+  ClipboardList,
   Clock,
   MapPin,
-  Activity,
+  Percent,
+  TrendingUp,
+  Users,
 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -24,13 +24,11 @@ import { mockDepartments, mockAuditLogs } from "@/lib/mock-data"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { type ReportStatus } from "@/lib/generated/prisma/enums"
+import { prisma } from "@/lib/prisma"
+import { getSlaDisplay } from "@/lib/sla"
 
-const stats = {
-  totalUsers: 245,
-  totalDepartments: mockDepartments.length,
-  totalReports: 887,
-  slaBreachRate: 8.2,
-}
+export const dynamic = "force-dynamic"
 
 function formatDate(dateString: string) {
   return new Date(dateString).toLocaleDateString("en-IN", {
@@ -57,7 +55,45 @@ const actionColors: Record<string, string> = {
   "SLA Breach Alert": "bg-destructive/10 text-destructive",
 }
 
-export default function SuperAdminDashboard() {
+function getSlaOverview(
+  reports: Array<{ status: ReportStatus; slaDueAt: Date | null }>
+) {
+  const states = reports.map((report) =>
+    getSlaDisplay({
+      status: report.status,
+      slaDueAt: report.slaDueAt,
+    }).state
+  )
+
+  const overdue = states.filter((state) => state === "overdue").length
+  const within = states.filter((state) => state === "within").length
+  const resolved = states.filter((state) => state === "resolved").length
+  const denominator = states.filter((state) => state !== "not-set").length
+  const compliance =
+    denominator === 0 ? 0 : Math.round(((within + resolved) / denominator) * 100)
+
+  return {
+    overdue,
+    within,
+    resolved,
+    compliance,
+  }
+}
+
+export default async function SuperAdminDashboard() {
+  const [totalUsers, totalDepartments, reports] = await Promise.all([
+    prisma.user.count(),
+    prisma.department.count(),
+    prisma.report.findMany({
+      select: {
+        status: true,
+        slaDueAt: true,
+      },
+    }),
+  ])
+
+  const slaOverview = getSlaOverview(reports)
+
   return (
     <div className="space-y-6">
       <div>
@@ -70,7 +106,7 @@ export default function SuperAdminDashboard() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard
           title="Total Users"
-          value={stats.totalUsers}
+          value={totalUsers}
           description="Citizens & Officers"
           icon={Users}
           variant="primary"
@@ -78,24 +114,47 @@ export default function SuperAdminDashboard() {
         />
         <StatCard
           title="Total Departments"
-          value={stats.totalDepartments}
+          value={totalDepartments}
           description="Active departments"
           icon={Building2}
           variant="accent"
         />
         <StatCard
           title="Total Reports"
-          value={stats.totalReports}
+          value={reports.length}
           description="All time"
           icon={ClipboardList}
         />
         <StatCard
-          title="SLA Breach Rate"
-          value={`${stats.slaBreachRate}%`}
-          description="Last 30 days"
-          icon={AlertTriangle}
+          title="SLA Compliance"
+          value={`${slaOverview.compliance}%`}
+          description="Resolved or on time"
+          icon={Percent}
           variant="warning"
-          trend={{ value: 2.1, isPositive: false }}
+        />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <StatCard
+          title="Overdue Reports"
+          value={slaOverview.overdue}
+          description="Past SLA due date"
+          icon={AlertTriangle}
+          variant="destructive"
+        />
+        <StatCard
+          title="Within SLA"
+          value={slaOverview.within}
+          description="Active and on time"
+          icon={Clock}
+          variant="default"
+        />
+        <StatCard
+          title="Resolved Reports"
+          value={slaOverview.resolved}
+          description="Successfully closed"
+          icon={CheckCircle}
+          variant="accent"
         />
       </div>
 

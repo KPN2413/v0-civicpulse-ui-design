@@ -1,101 +1,145 @@
+import Link from "next/link"
+import { notFound } from "next/navigation"
 import {
+  AlertTriangle,
+  Calendar,
+  CheckCircle,
   ClipboardList,
   Clock,
-  AlertTriangle,
-  CheckCircle,
-  Play,
-  MessageSquarePlus,
-  CheckCheck,
+  Eye,
   MapPin,
-  Calendar,
+  Percent,
 } from "lucide-react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
+
+import { categoryToLabel, priorityToUi, statusToUi } from "@/app/admin/reports/report-mappers"
+import { PriorityBadge, StatusBadge } from "@/components/dashboard/status-badge"
 import { StatCard } from "@/components/dashboard/stat-card"
-import { StatusBadge, PriorityBadge } from "@/components/dashboard/status-badge"
-import { mockReports } from "@/lib/mock-data"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { getCurrentDbUser } from "@/lib/current-user"
+import { UserRole, type ReportStatus } from "@/lib/generated/prisma/enums"
+import { prisma } from "@/lib/prisma"
+import { getSlaBadgeClassName, getSlaDisplay } from "@/lib/sla"
 
-// Filter reports assigned to this officer (simulated)
-const assignedReports = mockReports.filter(
-  (r) => r.status === "assigned" || r.status === "in-progress" || r.status === "overdue"
-)
+export const dynamic = "force-dynamic"
 
-const stats = {
-  assigned: assignedReports.length,
-  inProgress: assignedReports.filter((r) => r.status === "in-progress").length,
-  overdue: assignedReports.filter((r) => r.status === "overdue").length,
-  resolvedThisWeek: 5, // Mock data
-}
-
-function formatDate(dateString: string) {
-  return new Date(dateString).toLocaleDateString("en-IN", {
+function formatDate(date: Date) {
+  return date.toLocaleDateString("en-IN", {
     day: "numeric",
     month: "short",
     year: "numeric",
   })
 }
 
-function formatTime(dateString: string) {
-  return new Date(dateString).toLocaleTimeString("en-IN", {
+function formatTime(date: Date) {
+  return date.toLocaleTimeString("en-IN", {
     hour: "2-digit",
     minute: "2-digit",
   })
 }
 
-function getTimeRemaining(deadline: string) {
-  const now = new Date()
-  const deadlineDate = new Date(deadline)
-  const diff = deadlineDate.getTime() - now.getTime()
-  
-  if (diff < 0) return "Overdue"
-  
-  const hours = Math.floor(diff / (1000 * 60 * 60))
-  const days = Math.floor(hours / 24)
-  
-  if (days > 0) return `${days}d ${hours % 24}h remaining`
-  return `${hours}h remaining`
+function getSlaOverview(
+  reports: Array<{ status: ReportStatus; slaDueAt: Date | null }>
+) {
+  const states = reports.map((report) =>
+    getSlaDisplay({
+      status: report.status,
+      slaDueAt: report.slaDueAt,
+    }).state
+  )
+
+  const overdue = states.filter((state) => state === "overdue").length
+  const within = states.filter((state) => state === "within").length
+  const resolved = states.filter((state) => state === "resolved").length
+  const denominator = states.filter((state) => state !== "not-set").length
+  const compliance =
+    denominator === 0 ? 0 : Math.round(((within + resolved) / denominator) * 100)
+
+  return {
+    overdue,
+    within,
+    resolved,
+    compliance,
+  }
 }
 
-export default function OfficerDashboard() {
+export default async function OfficerDashboard() {
+  const dbUser = await getCurrentDbUser()
+
+  if (!dbUser || dbUser.role !== UserRole.DEPARTMENT_OFFICER) {
+    notFound()
+  }
+
+  const reports = await prisma.report.findMany({
+    where: {
+      officerId: dbUser.id,
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      category: true,
+      status: true,
+      priority: true,
+      address: true,
+      createdAt: true,
+      slaDueAt: true,
+    },
+  })
+
+  const slaOverview = getSlaOverview(reports)
+  const visibleReports = reports.slice(0, 6)
+
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight text-foreground">Welcome, Suresh!</h2>
+        <h2 className="text-2xl font-bold tracking-tight text-foreground">
+          Welcome, {dbUser.name ?? "Officer"}!
+        </h2>
         <p className="text-muted-foreground">
-          Here are your assigned reports. Complete them before the SLA deadline.
+          Here are your assigned reports and their current SLA position.
         </p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         <StatCard
           title="Assigned Reports"
-          value={stats.assigned}
-          description="Total in queue"
+          value={reports.length}
+          description="Assigned to you"
           icon={ClipboardList}
           variant="primary"
         />
         <StatCard
-          title="In Progress"
-          value={stats.inProgress}
-          description="Currently working"
-          icon={Clock}
-          variant="accent"
-        />
-        <StatCard
-          title="Overdue"
-          value={stats.overdue}
-          description="SLA breached"
+          title="Overdue Reports"
+          value={slaOverview.overdue}
+          description="Past SLA due date"
           icon={AlertTriangle}
           variant="destructive"
         />
         <StatCard
-          title="Resolved This Week"
-          value={stats.resolvedThisWeek}
-          description="Great progress!"
+          title="Within SLA"
+          value={slaOverview.within}
+          description="Active and on time"
+          icon={Clock}
+          variant="default"
+        />
+        <StatCard
+          title="Resolved Reports"
+          value={slaOverview.resolved}
+          description="Completed assignments"
           icon={CheckCircle}
           variant="accent"
-          trend={{ value: 25, isPositive: true }}
+        />
+        <StatCard
+          title="SLA Compliance"
+          value={`${slaOverview.compliance}%`}
+          description="Resolved or on time"
+          icon={Percent}
+          variant="warning"
         />
       </div>
 
@@ -105,82 +149,74 @@ export default function OfficerDashboard() {
             <ClipboardList className="h-5 w-5 text-primary" />
             Assigned Issues
           </CardTitle>
-          <CardDescription>Reports assigned to you for resolution</CardDescription>
+          <CardDescription>Recent reports assigned to you for resolution</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            {assignedReports.map((report) => (
-              <div
-                key={report.id}
-                className="flex flex-col gap-4 rounded-lg border border-border bg-card p-4 md:flex-row md:items-center md:justify-between"
-              >
-                <div className="flex-1 space-y-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold text-primary">{report.id}</span>
-                    <StatusBadge status={report.status} />
-                    <PriorityBadge priority={report.priority} />
-                    {report.slaDeadline && (
-                      <Badge
-                        variant="outline"
-                        className={
-                          report.status === "overdue"
-                            ? "border-destructive/20 bg-destructive/10 text-destructive"
-                            : "border-warning/20 bg-warning/10 text-warning"
-                        }
-                      >
-                        <Clock className="mr-1 h-3 w-3" />
-                        {getTimeRemaining(report.slaDeadline)}
-                      </Badge>
-                    )}
-                  </div>
-                  <h3 className="font-medium text-foreground">{report.title}</h3>
-                  <p className="text-sm text-muted-foreground line-clamp-2">{report.description}</p>
-                  <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <MapPin className="h-3 w-3" />
-                      {report.location}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Calendar className="h-3 w-3" />
-                      {formatDate(report.createdAt)} at {formatTime(report.createdAt)}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {report.status === "assigned" && (
-                    <Button size="sm" className="gap-1">
-                      <Play className="h-3 w-3" />
-                      Start Work
+          {visibleReports.length > 0 ? (
+            <div className="space-y-4">
+              {visibleReports.map((report) => {
+                const sla = getSlaDisplay({
+                  status: report.status,
+                  slaDueAt: report.slaDueAt,
+                })
+
+                return (
+                  <div
+                    key={report.id}
+                    className="flex flex-col gap-4 rounded-lg border border-border bg-card p-4 md:flex-row md:items-center md:justify-between"
+                  >
+                    <div className="flex-1 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-primary">{report.id}</span>
+                        <StatusBadge status={statusToUi(report.status)} />
+                        <PriorityBadge priority={priorityToUi(report.priority)} />
+                        <Badge
+                          variant="outline"
+                          className={getSlaBadgeClassName(sla.state)}
+                        >
+                          {sla.label}
+                        </Badge>
+                      </div>
+                      <h3 className="font-medium text-foreground">{report.title}</h3>
+                      <p className="line-clamp-2 text-sm text-muted-foreground">
+                        {report.description}
+                      </p>
+                      <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <MapPin className="h-3 w-3" />
+                          {report.address ?? "Location not provided"}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Calendar className="h-3 w-3" />
+                          {formatDate(report.createdAt)} at {formatTime(report.createdAt)}
+                        </span>
+                        <span>{categoryToLabel(report.category)}</span>
+                        <span>{sla.timeText}</span>
+                      </div>
+                    </div>
+                    <Button size="sm" variant="outline" className="gap-1" asChild>
+                      <Link href={`/officer/reports/${report.id}`}>
+                        <Eye className="h-3 w-3" />
+                        View
+                      </Link>
                     </Button>
-                  )}
-                  {report.status === "in-progress" && (
-                    <>
-                      <Button size="sm" variant="outline" className="gap-1">
-                        <MessageSquarePlus className="h-3 w-3" />
-                        Add Update
-                      </Button>
-                      <Button size="sm" className="gap-1">
-                        <CheckCheck className="h-3 w-3" />
-                        Mark Resolved
-                      </Button>
-                    </>
-                  )}
-                  {report.status === "overdue" && (
-                    <>
-                      <Button size="sm" variant="outline" className="gap-1">
-                        <MessageSquarePlus className="h-3 w-3" />
-                        Add Update
-                      </Button>
-                      <Button size="sm" variant="destructive" className="gap-1">
-                        <CheckCheck className="h-3 w-3" />
-                        Resolve Now
-                      </Button>
-                    </>
-                  )}
-                </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <div className="rounded-full bg-muted p-4">
+                <ClipboardList className="h-8 w-8 text-muted-foreground" />
               </div>
-            ))}
-          </div>
+              <h3 className="mt-4 text-lg font-semibold text-foreground">
+                No assigned reports yet
+              </h3>
+              <p className="mt-2 max-w-md text-sm text-muted-foreground">
+                Reports assigned to your officer account will appear here.
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
