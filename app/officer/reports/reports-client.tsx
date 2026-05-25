@@ -7,12 +7,12 @@ import {
   Calendar,
   CheckCircle,
   ClipboardList,
+  Clock,
   Eye,
   FileWarning,
   MapPin,
   Search,
   User,
-  Wrench,
 } from "lucide-react"
 
 import type { UiReportPriority, UiReportStatus } from "@/app/admin/reports/report-mappers"
@@ -60,10 +60,10 @@ export type OfficerReportRow = {
 }
 
 export type OfficerReportsStats = {
-  open: number
-  inProgress: number
+  assigned: number
+  overdue: number
+  within: number
   resolved: number
-  highPriority: number
 }
 
 type OfficerReportsClientProps = {
@@ -73,6 +73,13 @@ type OfficerReportsClientProps = {
 
 const statuses = ["All", "Pending", "Verified", "Assigned", "In Progress", "Resolved", "Rejected"]
 const priorities = ["All", "Low", "Medium", "High", "Critical"]
+const slaFilters: { label: string; value: "All" | SlaState }[] = [
+  { label: "All SLA states", value: "All" },
+  { label: "Overdue", value: "overdue" },
+  { label: "Within SLA", value: "within" },
+  { label: "Resolved", value: "resolved" },
+  { label: "SLA not set", value: "not-set" },
+]
 
 function formatDate(dateString: string) {
   return new Date(dateString).toLocaleDateString("en-IN", {
@@ -87,6 +94,7 @@ export function OfficerReportsClient({ reports, stats }: OfficerReportsClientPro
   const [statusFilter, setStatusFilter] = useState("All")
   const [categoryFilter, setCategoryFilter] = useState("All")
   const [priorityFilter, setPriorityFilter] = useState("All")
+  const [slaFilter, setSlaFilter] = useState<"All" | SlaState>("All")
 
   const categories = useMemo(
     () => ["All", ...Array.from(new Set(reports.map((report) => report.category)))],
@@ -114,15 +122,18 @@ export function OfficerReportsClient({ reports, stats }: OfficerReportsClientPro
       const matchesPriority =
         priorityFilter === "All" || report.priority.toLowerCase() === priorityFilter.toLowerCase()
 
-      return matchesSearch && matchesStatus && matchesCategory && matchesPriority
+      const matchesSla = slaFilter === "All" || report.slaState === slaFilter
+
+      return matchesSearch && matchesStatus && matchesCategory && matchesPriority && matchesSla
     })
-  }, [reports, searchQuery, statusFilter, categoryFilter, priorityFilter])
+  }, [reports, searchQuery, statusFilter, categoryFilter, priorityFilter, slaFilter])
 
   function clearFilters() {
     setSearchQuery("")
     setStatusFilter("All")
     setCategoryFilter("All")
     setPriorityFilter("All")
+    setSlaFilter("All")
   }
 
   return (
@@ -136,17 +147,24 @@ export function OfficerReportsClient({ reports, stats }: OfficerReportsClientPro
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          title="Assigned Open"
-          value={stats.open}
-          description="Needs department action"
+          title="Assigned Reports"
+          value={stats.assigned}
+          description="Assigned to you"
           icon={ClipboardList}
           variant="primary"
         />
         <StatCard
-          title="In Progress"
-          value={stats.inProgress}
-          description="Work currently active"
-          icon={Wrench}
+          title="Overdue Reports"
+          value={stats.overdue}
+          description="Past SLA due date"
+          icon={FileWarning}
+          variant="destructive"
+        />
+        <StatCard
+          title="Within SLA"
+          value={stats.within}
+          description="Active and on time"
+          icon={Clock}
           variant="default"
         />
         <StatCard
@@ -156,20 +174,13 @@ export function OfficerReportsClient({ reports, stats }: OfficerReportsClientPro
           icon={CheckCircle}
           variant="accent"
         />
-        <StatCard
-          title="High Priority"
-          value={stats.highPriority}
-          description="High or critical reports"
-          icon={FileWarning}
-          variant="warning"
-        />
       </div>
 
       <Card>
         <CardHeader className="pb-4">
           <CardTitle className="text-base">Filters</CardTitle>
           <CardDescription>
-            Narrow down assigned reports by status, category, priority, or search term.
+            Narrow down assigned reports by status, category, priority, SLA state, or search term.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -216,6 +227,21 @@ export function OfficerReportsClient({ reports, stats }: OfficerReportsClientPro
                   {priorities.map((priority) => (
                     <SelectItem key={priority} value={priority}>
                       {priority}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={slaFilter}
+                onValueChange={(value) => setSlaFilter(value as "All" | SlaState)}
+              >
+                <SelectTrigger className="w-[150px]">
+                  <SelectValue placeholder="SLA" />
+                </SelectTrigger>
+                <SelectContent>
+                  {slaFilters.map((filter) => (
+                    <SelectItem key={filter.value} value={filter.value}>
+                      {filter.label}
                     </SelectItem>
                   ))}
                 </SelectContent>

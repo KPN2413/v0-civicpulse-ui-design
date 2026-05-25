@@ -2,7 +2,6 @@ import { AdminReportsClient, type AdminReportRow, type AdminReportsStats } from 
 import { categoryToLabel, priorityToUi, statusToUi } from "./report-mappers"
 
 import { prisma } from "@/lib/prisma"
-import { ReportStatus } from "@/lib/generated/prisma/enums"
 import { getSlaDisplay } from "@/lib/sla"
 
 export const dynamic = "force-dynamic"
@@ -61,14 +60,10 @@ export default async function AdminReportsPage() {
   })
 
   const stats: AdminReportsStats = {
-    total: reports.length,
-    pendingReview: reports.filter(
-      (report) =>
-        report.status === ReportStatus.SUBMITTED ||
-        report.status === ReportStatus.REOPENED
-    ).length,
-    inProgress: reports.filter((report) => report.status === ReportStatus.IN_PROGRESS).length,
-    resolved: reports.filter((report) => report.status === ReportStatus.RESOLVED).length,
+    total: reportRows.length,
+    overdue: reportRows.filter((report) => report.slaState === "overdue").length,
+    within: reportRows.filter((report) => report.slaState === "within").length,
+    resolved: reportRows.filter((report) => report.slaState === "resolved").length,
   }
 
   return <AdminReportsClient reports={reportRows} stats={stats} />

@@ -11,7 +11,6 @@ import {
   Clock,
   Eye,
   FileWarning,
-  Loader2,
   MapPin,
   Search,
   User,
@@ -62,8 +61,8 @@ export type AdminReportRow = {
 
 export type AdminReportsStats = {
   total: number
-  pendingReview: number
-  inProgress: number
+  overdue: number
+  within: number
   resolved: number
 }
 
@@ -74,6 +73,13 @@ type AdminReportsClientProps = {
 
 const statuses = ["All", "Pending", "Verified", "Assigned", "In Progress", "Resolved", "Rejected"]
 const priorities = ["All", "Low", "Medium", "High", "Critical"]
+const slaFilters: { label: string; value: "All" | SlaState }[] = [
+  { label: "All SLA states", value: "All" },
+  { label: "Overdue", value: "overdue" },
+  { label: "Within SLA", value: "within" },
+  { label: "Resolved", value: "resolved" },
+  { label: "SLA not set", value: "not-set" },
+]
 
 function formatDate(dateString: string) {
   return new Date(dateString).toLocaleDateString("en-IN", {
@@ -90,6 +96,7 @@ export function AdminReportsClient({ reports, stats }: AdminReportsClientProps) 
   const [categoryFilter, setCategoryFilter] = useState("All")
   const [priorityFilter, setPriorityFilter] = useState("All")
   const [departmentFilter, setDepartmentFilter] = useState("All")
+  const [slaFilter, setSlaFilter] = useState<"All" | SlaState>("All")
 
   const detailBasePath = pathname.startsWith("/super-admin")
     ? "/super-admin/reports"
@@ -140,15 +147,26 @@ export function AdminReportsClient({ reports, stats }: AdminReportsClientProps) 
       const matchesDepartment =
         departmentFilter === "All" || report.departmentName === departmentFilter
 
+      const matchesSla = slaFilter === "All" || report.slaState === slaFilter
+
       return (
         matchesSearch &&
         matchesStatus &&
         matchesCategory &&
         matchesPriority &&
-        matchesDepartment
+        matchesDepartment &&
+        matchesSla
       )
     })
-  }, [reports, searchQuery, statusFilter, categoryFilter, priorityFilter, departmentFilter])
+  }, [
+    reports,
+    searchQuery,
+    statusFilter,
+    categoryFilter,
+    priorityFilter,
+    departmentFilter,
+    slaFilter,
+  ])
 
   function clearFilters() {
     setSearchQuery("")
@@ -156,6 +174,7 @@ export function AdminReportsClient({ reports, stats }: AdminReportsClientProps) 
     setCategoryFilter("All")
     setPriorityFilter("All")
     setDepartmentFilter("All")
+    setSlaFilter("All")
   }
 
   return (
@@ -176,17 +195,17 @@ export function AdminReportsClient({ reports, stats }: AdminReportsClientProps) 
           variant="primary"
         />
         <StatCard
-          title="Pending Review"
-          value={stats.pendingReview}
-          description="Submitted reports"
-          icon={Clock}
-          variant="warning"
+          title="Overdue Reports"
+          value={stats.overdue}
+          description="Past SLA due date"
+          icon={FileWarning}
+          variant="destructive"
         />
         <StatCard
-          title="In Progress"
-          value={stats.inProgress}
-          description="Being worked on"
-          icon={Loader2}
+          title="Within SLA"
+          value={stats.within}
+          description="Active and on time"
+          icon={Clock}
           variant="default"
         />
         <StatCard
@@ -202,7 +221,7 @@ export function AdminReportsClient({ reports, stats }: AdminReportsClientProps) 
         <CardHeader className="pb-4">
           <CardTitle className="text-base">Filters</CardTitle>
           <CardDescription>
-            Narrow down reports by status, category, priority, or department.
+            Narrow down reports by status, category, priority, department, or SLA state.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -261,6 +280,21 @@ export function AdminReportsClient({ reports, stats }: AdminReportsClientProps) 
                   {departments.map((department) => (
                     <SelectItem key={department} value={department}>
                       {department}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={slaFilter}
+                onValueChange={(value) => setSlaFilter(value as "All" | SlaState)}
+              >
+                <SelectTrigger className="w-[150px]">
+                  <SelectValue placeholder="SLA" />
+                </SelectTrigger>
+                <SelectContent>
+                  {slaFilters.map((filter) => (
+                    <SelectItem key={filter.value} value={filter.value}>
+                      {filter.label}
                     </SelectItem>
                   ))}
                 </SelectContent>

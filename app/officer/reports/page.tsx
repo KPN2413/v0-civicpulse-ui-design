@@ -8,7 +8,7 @@ import {
 import { categoryToLabel, priorityToUi, statusToUi } from "@/app/admin/reports/report-mappers"
 
 import { getCurrentDbUser } from "@/lib/current-user"
-import { ReportPriority, ReportStatus, UserRole } from "@/lib/generated/prisma/enums"
+import { UserRole } from "@/lib/generated/prisma/enums"
 import { prisma } from "@/lib/prisma"
 import { getSlaDisplay } from "@/lib/sla"
 
@@ -77,18 +77,10 @@ export default async function OfficerReportsPage() {
   })
 
   const stats: OfficerReportsStats = {
-    open: reports.filter(
-      (report) =>
-        report.status !== ReportStatus.RESOLVED &&
-        report.status !== ReportStatus.REJECTED
-    ).length,
-    inProgress: reports.filter((report) => report.status === ReportStatus.IN_PROGRESS).length,
-    resolved: reports.filter((report) => report.status === ReportStatus.RESOLVED).length,
-    highPriority: reports.filter(
-      (report) =>
-        report.priority === ReportPriority.HIGH ||
-        report.priority === ReportPriority.CRITICAL
-    ).length,
+    assigned: reportRows.length,
+    overdue: reportRows.filter((report) => report.slaState === "overdue").length,
+    within: reportRows.filter((report) => report.slaState === "within").length,
+    resolved: reportRows.filter((report) => report.slaState === "resolved").length,
   }
 
   return <OfficerReportsClient reports={reportRows} stats={stats} />
