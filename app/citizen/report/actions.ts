@@ -30,13 +30,20 @@ type DuplicateWarningReport = {
   reasons: string[]
 }
 
+const coordinateSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .transform((value) => Number(value))
+  .pipe(z.number().finite())
+
 const reportSchema = z.object({
   title: z.string().trim().min(5).max(120),
   description: z.string().trim().min(10).max(1000),
   category: z.string().trim().min(1),
   address: z.string().trim().min(5).max(300),
-  latitude: z.coerce.number(),
-  longitude: z.coerce.number(),
+  latitude: coordinateSchema.pipe(z.number().min(-90).max(90)),
+  longitude: coordinateSchema.pipe(z.number().min(-180).max(180)),
 })
 
 const categoryMap: Record<string, IssueCategory> = {
@@ -118,6 +125,12 @@ export async function createReportAction(formData: FormData) {
   })
 
   if (!parsed.success) {
+    const fieldErrors = parsed.error.flatten().fieldErrors
+
+    if (fieldErrors.latitude || fieldErrors.longitude) {
+      return { success: false, error: "Please select the issue location on the map." }
+    }
+
     return { success: false, error: "Please fill all required report details correctly." }
   }
 

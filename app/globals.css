@@ -135,3 +135,27 @@
     @apply bg-background text-foreground;
   }
 }
+
+.leaflet-container {
+  font: inherit;
+}
+
+.civicpulse-location-marker {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--primary-foreground);
+  border-radius: 9999px;
+  background: var(--primary);
+  box-shadow:
+    0 0 0 3px color-mix(in oklch, var(--primary) 30%, transparent),
+    0 8px 18px color-mix(in oklch, var(--foreground) 22%, transparent);
+}
+
+.civicpulse-location-marker::after {
+  position: absolute;
+  inset: 7px;
+  border-radius: 9999px;
+  background: var(--primary-foreground);
+  content: "";
+}

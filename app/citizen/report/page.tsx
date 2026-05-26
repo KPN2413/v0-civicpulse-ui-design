@@ -27,6 +27,10 @@ import {
 } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { StatusBadge } from "@/components/dashboard/status-badge"
+import {
+  ReportLocationPicker,
+  type ReportLocation,
+} from "@/components/report-location-picker"
 
 const categories = [
   { value: "road-damage", label: "Road Damage" },
@@ -76,6 +80,8 @@ export default function ReportIssuePage() {
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [duplicateWarning, setDuplicateWarning] = useState<DuplicateWarningReport[] | null>(null)
+  const [selectedLocation, setSelectedLocation] = useState<ReportLocation | null>(null)
+  const [locationError, setLocationError] = useState<string | null>(null)
 
   const handleDragOver = (event: React.DragEvent) => {
     event.preventDefault()
@@ -97,6 +103,12 @@ export default function ReportIssuePage() {
     }
   }
 
+  const handleLocationChange = (location: ReportLocation) => {
+    setSelectedLocation(location)
+    setLocationError(null)
+    clearDuplicateWarningOnEdit()
+  }
+
   const handleSubmitReport = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
@@ -105,6 +117,13 @@ export default function ReportIssuePage() {
     setError(null)
     setSuccessMessage(null)
     setDuplicateWarning(null)
+
+    if (!selectedLocation) {
+      setLocationError("Please select the issue location on the map before submitting.")
+      return
+    }
+
+    setLocationError(null)
 
     startTransition(async () => {
       const result = await createReportAction(formData)
@@ -121,6 +140,8 @@ export default function ReportIssuePage() {
 
       formRef.current?.reset()
       setSelectedCategory("")
+      setSelectedLocation(null)
+      setLocationError(null)
       setDuplicateWarning(null)
       setSuccessMessage(`Report submitted successfully. Report ID: ${result.reportId}`)
     })
@@ -223,8 +244,20 @@ export default function ReportIssuePage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <form ref={formRef} onSubmit={handleSubmitReport} className="space-y-6">
           <input type="hidden" name="category" value={selectedCategory} />
-          <input type="hidden" name="latitude" value="19.076" />
-          <input type="hidden" name="longitude" value="72.8777" />
+          {selectedLocation ? (
+            <>
+              <input
+                type="hidden"
+                name="latitude"
+                value={selectedLocation.latitude}
+              />
+              <input
+                type="hidden"
+                name="longitude"
+                value={selectedLocation.longitude}
+              />
+            </>
+          ) : null}
           {duplicateWarning ? (
             <input type="hidden" name="confirmDuplicate" value="true" />
           ) : null}
@@ -386,59 +419,11 @@ export default function ReportIssuePage() {
             </CardHeader>
 
             <CardContent>
-              <div className="relative mb-4 flex h-[280px] items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/30">
-                <div
-                  className="absolute inset-0 opacity-30"
-                  style={{
-                    backgroundImage: `
-                      linear-gradient(to right, var(--border) 1px, transparent 1px),
-                      linear-gradient(to bottom, var(--border) 1px, transparent 1px)
-                    `,
-                    backgroundSize: "40px 40px",
-                  }}
-                />
-
-                <div className="absolute left-0 right-0 top-1/2 h-2 -translate-y-1/2 bg-muted-foreground/20" />
-                <div className="absolute bottom-0 left-1/3 top-0 w-2 bg-muted-foreground/20" />
-                <div className="absolute bottom-0 right-1/4 top-0 w-1 bg-muted-foreground/10" />
-                <div className="absolute left-0 right-0 top-1/4 h-1 bg-muted-foreground/10" />
-
-                <div className="relative z-10 flex flex-col items-center">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-destructive shadow-lg">
-                    <MapPin className="h-6 w-6 text-destructive-foreground" />
-                  </div>
-                  <div className="mt-1 h-2 w-2 rounded-full bg-destructive/50" />
-                </div>
-
-                <div className="absolute bottom-3 left-3 right-3 rounded-md bg-background/90 px-3 py-2 text-center text-sm backdrop-blur-sm">
-                  <p className="font-medium text-foreground">Default demo location</p>
-                  <p className="text-xs text-muted-foreground">
-                    Interactive map will be connected in the map integration step
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="latitude">Latitude</Label>
-                  <Input
-                    id="latitude"
-                    value="19.0760"
-                    readOnly
-                    className="bg-muted/30 font-mono text-sm"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="longitude">Longitude</Label>
-                  <Input
-                    id="longitude"
-                    value="72.8777"
-                    readOnly
-                    className="bg-muted/30 font-mono text-sm"
-                  />
-                </div>
-              </div>
+              <ReportLocationPicker
+                value={selectedLocation}
+                onChange={handleLocationChange}
+                error={locationError}
+              />
             </CardContent>
           </Card>
 
