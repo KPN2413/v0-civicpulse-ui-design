@@ -97,7 +97,11 @@ export default function ReportIssuePage() {
     }
   }
 
-  const handleSubmitReport = (formData: FormData) => {
+  const handleSubmitReport = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    const formData = new FormData(event.currentTarget)
+
     setError(null)
     setSuccessMessage(null)
     setDuplicateWarning(null)
@@ -169,9 +173,9 @@ export default function ReportIssuePage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-3">
-              {duplicateWarning.slice(0, 3).map((duplicate) => (
+              {duplicateWarning.slice(0, 3).map((duplicate, index) => (
                 <div
-                  key={`${duplicate.title}-${duplicate.distanceMeters}`}
+                  key={`${duplicate.title}-${duplicate.distanceMeters}-${index}`}
                   className="rounded-lg border border-border bg-background p-3"
                 >
                   <div className="flex flex-wrap items-center gap-2">
@@ -217,7 +221,7 @@ export default function ReportIssuePage() {
       ) : null}
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <form ref={formRef} action={handleSubmitReport} className="space-y-6">
+        <form ref={formRef} onSubmit={handleSubmitReport} className="space-y-6">
           <input type="hidden" name="category" value={selectedCategory} />
           <input type="hidden" name="latitude" value="19.076" />
           <input type="hidden" name="longitude" value="72.8777" />
