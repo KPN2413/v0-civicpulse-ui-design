@@ -38,22 +38,35 @@ const categories = [
   { value: "other", label: "Other" },
 ]
 
-const mockNearbyReports = [
-  {
-    id: "CIV-2024-0892",
-    title: "Pothole on Main Road near Bus Stop",
-    category: "Road Damage",
-    distance: "120m away",
-    status: "in-progress" as const,
-  },
-  {
-    id: "CIV-2024-0887",
-    title: "Street Light Not Working",
-    category: "Street Light Failure",
-    distance: "250m away",
-    status: "assigned" as const,
-  },
-]
+type DuplicateWarningReport = {
+  title: string
+  category: string
+  status: "pending" | "verified" | "assigned" | "in-progress" | "resolved" | "rejected"
+  classification: "LIKELY_DUPLICATE" | "POSSIBLE_DUPLICATE" | "UNLIKELY_DUPLICATE"
+  score: number
+  distanceMeters: number
+  reasons: string[]
+}
+
+const classificationLabels: Record<DuplicateWarningReport["classification"], string> = {
+  LIKELY_DUPLICATE: "Likely duplicate",
+  POSSIBLE_DUPLICATE: "Possible duplicate",
+  UNLIKELY_DUPLICATE: "Unlikely duplicate",
+}
+
+function formatDistance(distanceMeters: number) {
+  if (!Number.isFinite(distanceMeters)) return "Distance unavailable"
+
+  if (distanceMeters < 1000) {
+    return `${Math.round(distanceMeters)}m away`
+  }
+
+  return `${(distanceMeters / 1000).toFixed(1)}km away`
+}
+
+function formatScore(score: number) {
+  return `${Math.round(score * 100)}% match`
+}
 
 export default function ReportIssuePage() {
   const formRef = useRef<HTMLFormElement>(null)
@@ -62,6 +75,7 @@ export default function ReportIssuePage() {
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [duplicateWarning, setDuplicateWarning] = useState<DuplicateWarningReport[] | null>(null)
 
   const handleDragOver = (event: React.DragEvent) => {
     event.preventDefault()
@@ -77,20 +91,33 @@ export default function ReportIssuePage() {
     setIsDragging(false)
   }
 
+  const clearDuplicateWarningOnEdit = () => {
+    if (duplicateWarning) {
+      setDuplicateWarning(null)
+    }
+  }
+
   const handleSubmitReport = (formData: FormData) => {
     setError(null)
     setSuccessMessage(null)
+    setDuplicateWarning(null)
 
     startTransition(async () => {
       const result = await createReportAction(formData)
 
       if (!result.success) {
+        if ("duplicateWarning" in result && result.duplicateWarning) {
+          setDuplicateWarning(result.duplicates)
+          return
+        }
+
         setError(result.error)
         return
       }
 
       formRef.current?.reset()
       setSelectedCategory("")
+      setDuplicateWarning(null)
       setSuccessMessage(`Report submitted successfully. Report ID: ${result.reportId}`)
     })
   }
@@ -129,11 +156,74 @@ export default function ReportIssuePage() {
         </Card>
       ) : null}
 
+      {duplicateWarning ? (
+        <Card className="border-warning/30 bg-warning/10">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-warning-foreground">
+              <AlertTriangle className="h-5 w-5 text-warning" />
+              Similar reports found
+            </CardTitle>
+            <CardDescription>
+              We found reports that may describe the same issue. Review them before submitting.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3">
+              {duplicateWarning.slice(0, 3).map((duplicate) => (
+                <div
+                  key={`${duplicate.title}-${duplicate.distanceMeters}`}
+                  className="rounded-lg border border-border bg-background p-3"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline">
+                      {classificationLabels[duplicate.classification]}
+                    </Badge>
+                    <StatusBadge status={duplicate.status} />
+                    <Badge variant="secondary">{formatScore(duplicate.score)}</Badge>
+                  </div>
+
+                  <p className="mt-2 font-medium text-foreground">{duplicate.title}</p>
+
+                  <div className="mt-1 flex flex-wrap gap-3 text-xs text-muted-foreground">
+                    <span>{duplicate.category}</span>
+                    <span className="flex items-center gap-1">
+                      <MapPin className="h-3 w-3" />
+                      {formatDistance(duplicate.distanceMeters)}
+                    </span>
+                  </div>
+
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {duplicate.reasons.slice(0, 2).join("; ")}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex flex-col gap-3 rounded-lg border bg-background/70 p-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-muted-foreground">
+                If this is a separate issue, use Submit anyway below. If you edit the report,
+                check again before submitting.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDuplicateWarning(null)}
+              >
+                Check again after edits
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
       <div className="grid gap-6 lg:grid-cols-2">
         <form ref={formRef} action={handleSubmitReport} className="space-y-6">
           <input type="hidden" name="category" value={selectedCategory} />
           <input type="hidden" name="latitude" value="19.076" />
           <input type="hidden" name="longitude" value="72.8777" />
+          {duplicateWarning ? (
+            <input type="hidden" name="confirmDuplicate" value="true" />
+          ) : null}
 
           <Card>
             <CardHeader>
@@ -153,6 +243,7 @@ export default function ReportIssuePage() {
                   id="title"
                   name="title"
                   placeholder="e.g., Large pothole on MG Road near City Mall"
+                  onChange={clearDuplicateWarningOnEdit}
                   required
                 />
               </div>
@@ -164,13 +255,20 @@ export default function ReportIssuePage() {
                   name="description"
                   placeholder="Describe the issue in detail. Include information like size, severity, how long it has been present, and any safety concerns..."
                   className="min-h-[120px] resize-none"
+                  onChange={clearDuplicateWarningOnEdit}
                   required
                 />
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="category">Category</Label>
-                <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                <Select
+                  value={selectedCategory}
+                  onValueChange={(value) => {
+                    setSelectedCategory(value)
+                    clearDuplicateWarningOnEdit()
+                  }}
+                >
                   <SelectTrigger id="category">
                     <SelectValue placeholder="Select issue category" />
                   </SelectTrigger>
@@ -208,6 +306,7 @@ export default function ReportIssuePage() {
                     name="address"
                     placeholder="Enter the full address of the issue location"
                     className="pl-9"
+                    onChange={clearDuplicateWarningOnEdit}
                     required
                   />
                 </div>
@@ -264,7 +363,11 @@ export default function ReportIssuePage() {
 
           <Button type="submit" size="lg" className="w-full gap-2" disabled={isPending}>
             <CheckCircle2 className="h-5 w-5" />
-            {isPending ? "Submitting..." : "Submit Report"}
+            {isPending
+              ? "Submitting..."
+              : duplicateWarning
+                ? "Submit anyway"
+                : "Submit Report"}
           </Button>
         </form>
 
@@ -348,44 +451,11 @@ export default function ReportIssuePage() {
             </CardHeader>
 
             <CardContent>
-              <p className="mb-3 text-sm font-medium text-foreground">
-                Nearby reports in this area:
+              <p className="text-sm text-muted-foreground">
+                Duplicate checking happens after submission. If similar reports are found,
+                you can review them and still submit anyway.
               </p>
 
-              <div className="space-y-3">
-                {mockNearbyReports.map((report) => (
-                  <div
-                    key={report.id}
-                    className="flex items-start justify-between gap-3 rounded-lg border border-border bg-background p-3"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-medium text-primary">
-                          {report.id}
-                        </span>
-                        <StatusBadge status={report.status} />
-                      </div>
-
-                      <p className="mt-1 truncate text-sm font-medium text-foreground">
-                        {report.title}
-                      </p>
-
-                      <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                        <span>{report.category}</span>
-                        <span>•</span>
-                        <span className="flex items-center gap-1">
-                          <MapPin className="h-3 w-3" />
-                          {report.distance}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <p className="mt-3 text-xs text-muted-foreground">
-                Real duplicate detection will be connected after reports list integration.
-              </p>
             </CardContent>
           </Card>
         </div>

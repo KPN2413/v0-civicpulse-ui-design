@@ -5,11 +5,30 @@ import { z } from "zod"
 
 import { getCurrentDbUser } from "@/lib/current-user"
 import { prisma } from "@/lib/prisma"
+import { findPotentialDuplicateReports } from "@/lib/report-duplicates"
 import {
   IssueCategory,
   ReportPriority,
   ReportStatus,
 } from "@/lib/generated/prisma/enums"
+
+type UiReportStatus =
+  | "pending"
+  | "verified"
+  | "assigned"
+  | "in-progress"
+  | "resolved"
+  | "rejected"
+
+type DuplicateWarningReport = {
+  title: string
+  category: string
+  status: UiReportStatus
+  classification: "LIKELY_DUPLICATE" | "POSSIBLE_DUPLICATE" | "UNLIKELY_DUPLICATE"
+  score: number
+  distanceMeters: number
+  reasons: string[]
+}
 
 const reportSchema = z.object({
   title: z.string().trim().min(5).max(120),
@@ -47,6 +66,29 @@ function getPriority(category: IssueCategory): ReportPriority {
   return ReportPriority.LOW
 }
 
+function categoryToLabel(category: IssueCategory) {
+  const labels: Record<IssueCategory, string> = {
+    ROAD_DAMAGE: "Road Damage",
+    GARBAGE_OVERFLOW: "Garbage Overflow",
+    STREET_LIGHT: "Street Light",
+    WATER_LEAKAGE: "Water Leakage",
+    DRAINAGE: "Drainage",
+    PUBLIC_SAFETY: "Public Safety",
+    OTHER: "Other",
+  }
+
+  return labels[category]
+}
+
+function statusToUi(status: ReportStatus): UiReportStatus {
+  if (status === ReportStatus.VERIFIED) return "verified"
+  if (status === ReportStatus.ASSIGNED) return "assigned"
+  if (status === ReportStatus.IN_PROGRESS) return "in-progress"
+  if (status === ReportStatus.RESOLVED) return "resolved"
+  if (status === ReportStatus.REJECTED) return "rejected"
+  return "pending"
+}
+
 function getSlaDueAt(createdAt: Date, priority: ReportPriority) {
   const hoursByPriority: Record<ReportPriority, number> = {
     LOW: 24 * 7,
@@ -60,6 +102,7 @@ function getSlaDueAt(createdAt: Date, priority: ReportPriority) {
 
 export async function createReportAction(formData: FormData) {
   const dbUser = await getCurrentDbUser()
+  const confirmDuplicate = formData.get("confirmDuplicate") === "true"
 
   if (!dbUser) {
     return { success: false, error: "You must be signed in to submit a report." }
@@ -87,6 +130,39 @@ export async function createReportAction(formData: FormData) {
   const priority = getPriority(category)
   const createdAt = new Date()
   const slaDueAt = getSlaDueAt(createdAt, priority)
+
+  if (!confirmDuplicate) {
+    const duplicates = await findPotentialDuplicateReports(
+      {
+        title: parsed.data.title,
+        description: parsed.data.description,
+        category,
+        latitude: parsed.data.latitude,
+        longitude: parsed.data.longitude,
+        createdAt,
+      },
+      {
+        limit: 3,
+      }
+    )
+
+    if (duplicates.length > 0) {
+      return {
+        success: false,
+        error: null,
+        duplicateWarning: true,
+        duplicates: duplicates.map<DuplicateWarningReport>((duplicate) => ({
+          title: duplicate.title,
+          category: categoryToLabel(duplicate.category),
+          status: statusToUi(duplicate.status),
+          classification: duplicate.classification,
+          score: duplicate.score,
+          distanceMeters: duplicate.distanceMeters,
+          reasons: duplicate.reasons,
+        })),
+      }
+    }
+  }
 
   const department = await prisma.department.findFirst({
     where: {
