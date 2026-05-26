@@ -7,10 +7,10 @@ import {
   Clock,
   FileText,
   History,
-  MapPin,
 } from "lucide-react"
 
 import { PriorityBadge, StatusBadge } from "@/components/dashboard/status-badge"
+import { ReportLocationMap } from "@/components/report-location-map"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -188,15 +188,13 @@ export default async function CitizenReportDetailsPage({
 
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Location</p>
-                <div className="mt-1 flex items-start gap-2 text-foreground">
-                  <MapPin className="mt-0.5 h-4 w-4 text-muted-foreground" />
-                  <div>
-                    <p>{report.address ?? "Location not provided"}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Lat: {report.latitude}, Lng: {report.longitude}
-                    </p>
-                  </div>
-                </div>
+                <ReportLocationMap
+                  latitude={report.latitude}
+                  longitude={report.longitude}
+                  address={report.address}
+                  className="mt-2"
+                  mapClassName="h-[260px]"
+                />
               </div>
 
               {report.images.length > 0 ? (

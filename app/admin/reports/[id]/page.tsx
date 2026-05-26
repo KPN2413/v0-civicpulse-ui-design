@@ -26,6 +26,7 @@ import {
 import { categoryToLabel, priorityToUi, statusToUi } from "../report-mappers"
 
 import { PriorityBadge, StatusBadge } from "@/components/dashboard/status-badge"
+import { ReportLocationMap } from "@/components/report-location-map"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -357,31 +358,12 @@ export default async function AdminReportReviewPage({
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="relative flex aspect-video items-center justify-center rounded-lg border bg-gradient-to-br from-primary/5 to-accent/5">
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="flex flex-col items-center">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-destructive shadow-lg">
-                        <MapPin className="h-5 w-5 text-destructive-foreground" />
-                      </div>
-                      <div className="mt-1 h-4 w-0.5 bg-destructive" />
-                    </div>
-                  </div>
-                  <p className="absolute bottom-2 right-2 text-xs text-muted-foreground">
-                    Map placeholder
-                  </p>
-                </div>
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-start gap-2">
-                    <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <span className="text-muted-foreground">
-                      {report.address ?? "Location not provided"}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
-                    <span>Lat: {report.latitude}</span>
-                    <span>Long: {report.longitude}</span>
-                  </div>
-                </div>
+                <ReportLocationMap
+                  latitude={report.latitude}
+                  longitude={report.longitude}
+                  address={report.address}
+                  mapClassName="aspect-video h-auto"
+                />
               </CardContent>
             </Card>
           </div>
