@@ -18,6 +18,7 @@ import {
 import type { UiReportPriority, UiReportStatus } from "@/app/admin/reports/report-mappers"
 import { PriorityBadge, StatusBadge } from "@/components/dashboard/status-badge"
 import { StatCard } from "@/components/dashboard/stat-card"
+import { ReportsMapOverview } from "@/components/reports-map-overview"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -45,6 +46,9 @@ export type OfficerReportRow = {
   category: string
   status: UiReportStatus
   priority: UiReportPriority
+  address: string | null
+  latitude: number | null
+  longitude: number | null
   location: string
   citizenName: string
   citizenEmail: string
@@ -250,6 +254,8 @@ export function OfficerReportsClient({ reports, stats }: OfficerReportsClientPro
           </div>
         </CardContent>
       </Card>
+
+      <ReportsMapOverview reports={filteredReports} />
 
       <Card>
         <CardHeader>
