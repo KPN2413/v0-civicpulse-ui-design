@@ -18,6 +18,7 @@ import {
 
 import { PriorityBadge, StatusBadge } from "@/components/dashboard/status-badge"
 import { StatCard } from "@/components/dashboard/stat-card"
+import { ReportsMapOverview } from "@/components/reports-map-overview"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -45,6 +46,9 @@ export type AdminReportRow = {
   category: string
   status: "pending" | "verified" | "assigned" | "in-progress" | "resolved" | "rejected"
   priority: "low" | "medium" | "high" | "critical"
+  address: string | null
+  latitude: number | null
+  longitude: number | null
   location: string
   citizenName: string
   citizenEmail: string
@@ -303,6 +307,8 @@ export function AdminReportsClient({ reports, stats }: AdminReportsClientProps) 
           </div>
         </CardContent>
       </Card>
+
+      <ReportsMapOverview reports={filteredReports} />
 
       <Card>
         <CardHeader>
