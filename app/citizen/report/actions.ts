@@ -5,10 +5,12 @@ import { z } from "zod"
 
 import { getCurrentDbUser } from "@/lib/current-user"
 import { uploadReportEvidenceImage } from "@/lib/cloudinary"
+import { createNotification, notifyAdmins } from "@/lib/notifications"
 import { prisma } from "@/lib/prisma"
 import { findPotentialDuplicateReports } from "@/lib/report-duplicates"
 import {
   IssueCategory,
+  NotificationType,
   ReportPriority,
   ReportStatus,
 } from "@/lib/generated/prisma/enums"
@@ -303,10 +305,43 @@ export async function createReportAction(formData: FormData) {
       },
     })
 
+    try {
+      await Promise.all([
+        createNotification({
+          userId: dbUser.id,
+          type: NotificationType.REPORT_SUBMITTED,
+          title: "Report submitted",
+          message: "Your report has been submitted successfully.",
+          reportId: report.id,
+          actorId: dbUser.id,
+        }),
+        notifyAdmins({
+          type: NotificationType.REPORT_SUBMITTED,
+          title: "New report submitted",
+          message: "A new citizen report needs review.",
+          reportId: report.id,
+          actorId: dbUser.id,
+        }),
+      ])
+
+      if (uploadedEvidence.length > 0) {
+        await notifyAdmins({
+          type: NotificationType.REPORT_EVIDENCE_ADDED,
+          title: "Evidence attached",
+          message: "A report includes supporting evidence.",
+          reportId: report.id,
+          actorId: dbUser.id,
+        })
+      }
+    } catch (error) {
+      console.error("Failed to create report notifications", error)
+    }
+
     revalidatePath("/citizen/reports")
     revalidatePath(`/citizen/reports/${report.id}`)
     revalidatePath("/admin/reports")
     revalidatePath("/officer/reports")
+    revalidatePath("/notifications")
 
     return { success: true, error: null, reportId: report.id }
   } catch {

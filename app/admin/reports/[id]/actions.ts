@@ -3,9 +3,11 @@
 import { revalidatePath } from "next/cache"
 
 import { getCurrentDbUser } from "@/lib/current-user"
+import { createNotification } from "@/lib/notifications"
 import { prisma } from "@/lib/prisma"
 import {
   DepartmentStatus,
+  NotificationType,
   ReportStatus,
   UserRole,
 } from "@/lib/generated/prisma/enums"
@@ -44,19 +46,36 @@ function revalidateReportPaths(reportId: string) {
   revalidatePath(`/admin/reports/${reportId}`)
   revalidatePath("/super-admin/reports")
   revalidatePath(`/super-admin/reports/${reportId}`)
+  revalidatePath("/citizen/reports")
+  revalidatePath(`/citizen/reports/${reportId}`)
+  revalidatePath("/officer/reports")
+  revalidatePath(`/officer/reports/${reportId}`)
+  revalidatePath("/notifications")
+}
+
+async function safelyCreateWorkflowNotification(
+  input: Parameters<typeof createNotification>[0],
+  context: string
+) {
+  try {
+    await createNotification(input)
+  } catch (error) {
+    console.error(`Failed to create ${context} notification`, error)
+  }
 }
 
 export async function verifyReportAction(formData: FormData): Promise<void> {
   const reportId = getRequiredFormString(formData, "reportId")
   const user = await getWorkflowUser()
 
-  await prisma.$transaction(async (tx) => {
+  const notificationTarget = await prisma.$transaction(async (tx) => {
     const report = await tx.report.findUnique({
       where: {
         id: reportId,
       },
       select: {
         id: true,
+        citizenId: true,
         status: true,
       },
     })
@@ -103,7 +122,24 @@ export async function verifyReportAction(formData: FormData): Promise<void> {
         },
       },
     })
+
+    return {
+      citizenId: report.citizenId,
+      reportId: report.id,
+    }
   })
+
+  await safelyCreateWorkflowNotification(
+    {
+      userId: notificationTarget.citizenId,
+      type: NotificationType.REPORT_VERIFIED,
+      title: "Report verified",
+      message: "Your report has been verified and is ready for action.",
+      reportId: notificationTarget.reportId,
+      actorId: user.id,
+    },
+    "report verified"
+  )
 
   revalidateReportPaths(reportId)
 }
@@ -113,15 +149,17 @@ export async function assignDepartmentAction(formData: FormData): Promise<void> 
   const departmentId = getRequiredFormString(formData, "departmentId")
   const user = await getWorkflowUser()
 
-  await prisma.$transaction(async (tx) => {
+  const notificationTarget = await prisma.$transaction(async (tx) => {
     const report = await tx.report.findUnique({
       where: {
         id: reportId,
       },
       select: {
         id: true,
+        citizenId: true,
         departmentId: true,
         firstAssignedAt: true,
+        officerId: true,
         status: true,
       },
     })
@@ -199,7 +237,43 @@ export async function assignDepartmentAction(formData: FormData): Promise<void> 
         },
       },
     })
+
+    return {
+      citizenId: report.citizenId,
+      officerId: report.officerId,
+      reportId: report.id,
+      isReassignment,
+    }
   })
+
+  await Promise.all([
+    safelyCreateWorkflowNotification(
+      {
+        userId: notificationTarget.citizenId,
+        type: notificationTarget.isReassignment
+          ? NotificationType.REPORT_REASSIGNED
+          : NotificationType.REPORT_ASSIGNED,
+        title: "Report assigned",
+        message: "Your report has been assigned to the concerned team.",
+        reportId: notificationTarget.reportId,
+        actorId: user.id,
+      },
+      "report assigned"
+    ),
+    safelyCreateWorkflowNotification(
+      {
+        userId: notificationTarget.officerId,
+        type: notificationTarget.isReassignment
+          ? NotificationType.REPORT_REASSIGNED
+          : NotificationType.REPORT_ASSIGNED,
+        title: "New report assigned",
+        message: "A report has been assigned to you.",
+        reportId: notificationTarget.reportId,
+        actorId: user.id,
+      },
+      "officer assignment"
+    ),
+  ])
 
   revalidateReportPaths(reportId)
 }
@@ -209,13 +283,14 @@ export async function rejectReportAction(formData: FormData): Promise<void> {
   const reason = getRequiredFormString(formData, "reason")
   const user = await getWorkflowUser()
 
-  await prisma.$transaction(async (tx) => {
+  const notificationTarget = await prisma.$transaction(async (tx) => {
     const report = await tx.report.findUnique({
       where: {
         id: reportId,
       },
       select: {
         id: true,
+        citizenId: true,
         status: true,
       },
     })
@@ -260,7 +335,24 @@ export async function rejectReportAction(formData: FormData): Promise<void> {
         },
       },
     })
+
+    return {
+      citizenId: report.citizenId,
+      reportId: report.id,
+    }
   })
+
+  await safelyCreateWorkflowNotification(
+    {
+      userId: notificationTarget.citizenId,
+      type: NotificationType.REPORT_REJECTED,
+      title: "Report rejected",
+      message: "Your report was rejected. Please check the reason.",
+      reportId: notificationTarget.reportId,
+      actorId: user.id,
+    },
+    "report rejected"
+  )
 
   revalidateReportPaths(reportId)
 }
@@ -270,13 +362,14 @@ export async function resolveReportAction(formData: FormData): Promise<void> {
   const user = await getWorkflowUser()
   const resolvedAt = new Date()
 
-  await prisma.$transaction(async (tx) => {
+  const notificationTarget = await prisma.$transaction(async (tx) => {
     const report = await tx.report.findUnique({
       where: {
         id: reportId,
       },
       select: {
         id: true,
+        citizenId: true,
         status: true,
       },
     })
@@ -325,7 +418,24 @@ export async function resolveReportAction(formData: FormData): Promise<void> {
         },
       },
     })
+
+    return {
+      citizenId: report.citizenId,
+      reportId: report.id,
+    }
   })
+
+  await safelyCreateWorkflowNotification(
+    {
+      userId: notificationTarget.citizenId,
+      type: NotificationType.REPORT_RESOLVED,
+      title: "Report resolved",
+      message: "Your report has been marked as resolved.",
+      reportId: notificationTarget.reportId,
+      actorId: user.id,
+    },
+    "report resolved"
+  )
 
   revalidateReportPaths(reportId)
 }
