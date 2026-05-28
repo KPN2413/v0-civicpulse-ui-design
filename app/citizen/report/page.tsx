@@ -10,6 +10,7 @@ import {
   Camera,
   Navigation,
   CheckCircle2,
+  X,
 } from "lucide-react"
 
 import { createReportAction } from "./actions"
@@ -42,6 +43,10 @@ const categories = [
   { value: "other", label: "Other" },
 ]
 
+const MAX_EVIDENCE_FILES = 3
+const MAX_EVIDENCE_FILE_SIZE = 5 * 1024 * 1024
+const acceptedEvidenceTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"])
+
 type DuplicateWarningReport = {
   title: string
   category: string
@@ -72,8 +77,37 @@ function formatScore(score: number) {
   return `${Math.round(score * 100)}% match`
 }
 
+function formatFileSize(bytes: number) {
+  if (bytes < 1024 * 1024) {
+    return `${Math.max(1, Math.round(bytes / 1024))} KB`
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function getEvidenceSelectionError(files: File[]) {
+  if (files.length > MAX_EVIDENCE_FILES) {
+    return `Please upload no more than ${MAX_EVIDENCE_FILES} evidence images.`
+  }
+
+  const invalidType = files.find((file) => !acceptedEvidenceTypes.has(file.type))
+
+  if (invalidType) {
+    return "Evidence uploads must be JPG, PNG, WEBP, or GIF images."
+  }
+
+  const oversizedFile = files.find((file) => file.size > MAX_EVIDENCE_FILE_SIZE)
+
+  if (oversizedFile) {
+    return "Each evidence image must be 5 MB or smaller."
+  }
+
+  return null
+}
+
 export default function ReportIssuePage() {
   const formRef = useRef<HTMLFormElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [selectedCategory, setSelectedCategory] = useState("")
   const [isDragging, setIsDragging] = useState(false)
   const [isPending, startTransition] = useTransition()
@@ -82,6 +116,8 @@ export default function ReportIssuePage() {
   const [duplicateWarning, setDuplicateWarning] = useState<DuplicateWarningReport[] | null>(null)
   const [selectedLocation, setSelectedLocation] = useState<ReportLocation | null>(null)
   const [locationError, setLocationError] = useState<string | null>(null)
+  const [selectedEvidenceFiles, setSelectedEvidenceFiles] = useState<File[]>([])
+  const [evidenceError, setEvidenceError] = useState<string | null>(null)
 
   const handleDragOver = (event: React.DragEvent) => {
     event.preventDefault()
@@ -95,6 +131,8 @@ export default function ReportIssuePage() {
   const handleDrop = (event: React.DragEvent) => {
     event.preventDefault()
     setIsDragging(false)
+
+    addEvidenceFiles(Array.from(event.dataTransfer.files))
   }
 
   const clearDuplicateWarningOnEdit = () => {
@@ -109,10 +147,39 @@ export default function ReportIssuePage() {
     clearDuplicateWarningOnEdit()
   }
 
+  const addEvidenceFiles = (files: File[]) => {
+    const nextFiles = [...selectedEvidenceFiles, ...files.filter((file) => file.size > 0)]
+    const validationError = getEvidenceSelectionError(nextFiles)
+
+    if (validationError) {
+      setEvidenceError(validationError)
+      return
+    }
+
+    setSelectedEvidenceFiles(nextFiles)
+    setEvidenceError(null)
+    clearDuplicateWarningOnEdit()
+  }
+
+  const handleEvidenceFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    addEvidenceFiles(Array.from(event.target.files ?? []))
+    event.target.value = ""
+  }
+
+  const removeEvidenceFile = (indexToRemove: number) => {
+    const nextFiles = selectedEvidenceFiles.filter((_, index) => index !== indexToRemove)
+
+    setSelectedEvidenceFiles(nextFiles)
+    setEvidenceError(null)
+    clearDuplicateWarningOnEdit()
+  }
+
   const handleSubmitReport = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
     const formData = new FormData(event.currentTarget)
+    formData.delete("evidence")
+    selectedEvidenceFiles.forEach((file) => formData.append("evidence", file))
 
     setError(null)
     setSuccessMessage(null)
@@ -123,7 +190,15 @@ export default function ReportIssuePage() {
       return
     }
 
+    const evidenceSelectionError = getEvidenceSelectionError(selectedEvidenceFiles)
+
+    if (evidenceSelectionError) {
+      setEvidenceError(evidenceSelectionError)
+      return
+    }
+
     setLocationError(null)
+    setEvidenceError(null)
 
     startTransition(async () => {
       const result = await createReportAction(formData)
@@ -139,8 +214,13 @@ export default function ReportIssuePage() {
       }
 
       formRef.current?.reset()
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ""
+      }
       setSelectedCategory("")
       setSelectedLocation(null)
+      setSelectedEvidenceFiles([])
+      setEvidenceError(null)
       setLocationError(null)
       setDuplicateWarning(null)
       setSuccessMessage(`Report submitted successfully. Report ID: ${result.reportId}`)
@@ -228,6 +308,9 @@ export default function ReportIssuePage() {
               <p className="text-sm text-muted-foreground">
                 If this is a separate issue, use Submit anyway below. If you edit the report,
                 check again before submitting.
+                {selectedEvidenceFiles.length > 0
+                  ? " Selected evidence will be included when you submit anyway."
+                  : ""}
               </p>
               <Button
                 type="button"
@@ -355,14 +438,22 @@ export default function ReportIssuePage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Camera className="h-5 w-5 text-primary" />
-                Upload Image
+                Evidence Images
               </CardTitle>
               <CardDescription>
-                Image upload will be connected in the Cloudinary step.
+                Upload up to 3 images. Each image must be 5 MB or smaller.
               </CardDescription>
             </CardHeader>
 
             <CardContent>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="sr-only"
+                onChange={handleEvidenceFileChange}
+              />
               <div
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
@@ -379,22 +470,61 @@ export default function ReportIssuePage() {
 
                 <div className="text-center">
                   <p className="font-medium text-foreground">
-                    Drag and drop your image here
+                    Drag and drop evidence images here
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    Image upload will be added in the next media step
+                    JPG, PNG, WEBP, or GIF images are supported
                   </p>
                 </div>
 
-                <Button type="button" variant="outline" className="gap-2" disabled>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-2"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={selectedEvidenceFiles.length >= MAX_EVIDENCE_FILES}
+                >
                   <Upload className="h-4 w-4" />
-                  Upload Image
+                  Choose Images
                 </Button>
 
                 <p className="text-xs text-muted-foreground">
-                  Supported formats later: JPG, PNG, WEBP
+                  {selectedEvidenceFiles.length} of {MAX_EVIDENCE_FILES} selected
                 </p>
               </div>
+
+              {evidenceError ? (
+                <p className="mt-2 text-sm text-destructive">{evidenceError}</p>
+              ) : null}
+
+              {selectedEvidenceFiles.length > 0 ? (
+                <div className="mt-4 space-y-2">
+                  {selectedEvidenceFiles.map((file, index) => (
+                    <div
+                      key={`${file.name}-${file.size}-${file.lastModified}`}
+                      className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-foreground">
+                          {file.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {file.type || "Image"} - {formatFileSize(file.size)}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeEvidenceFile(index)}
+                      >
+                        <X className="h-4 w-4" />
+                        <span className="sr-only">Remove image</span>
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </CardContent>
           </Card>
 

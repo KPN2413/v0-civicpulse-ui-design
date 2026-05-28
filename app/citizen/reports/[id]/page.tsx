@@ -10,6 +10,7 @@ import {
 } from "lucide-react"
 
 import { PriorityBadge, StatusBadge } from "@/components/dashboard/status-badge"
+import { ReportEvidenceGallery, type ReportEvidenceItem } from "@/components/report-evidence-gallery"
 import { ReportLocationMap } from "@/components/report-location-map"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -88,6 +89,11 @@ export default async function CitizenReportDetailsPage({
         },
       },
       images: true,
+      attachments: {
+        orderBy: {
+          createdAt: "asc",
+        },
+      },
     },
   })
 
@@ -99,6 +105,20 @@ export default async function CitizenReportDetailsPage({
     status: report.status,
     slaDueAt: report.slaDueAt,
   })
+  const evidence: ReportEvidenceItem[] = [
+    ...report.attachments.map((attachment) => ({
+      id: attachment.id,
+      url: attachment.url,
+      fileName: attachment.fileName,
+      fileType: attachment.fileType,
+      fileSize: attachment.fileSize,
+    })),
+    ...report.images.map((image) => ({
+      id: `image-${image.id}`,
+      url: image.imageUrl,
+      fileName: "Report image",
+    })),
+  ]
 
   return (
     <div className="space-y-6">
@@ -197,25 +217,7 @@ export default async function CitizenReportDetailsPage({
                 />
               </div>
 
-              {report.images.length > 0 ? (
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Images</p>
-                  <div className="mt-2 grid gap-3 sm:grid-cols-2">
-                    {report.images.map((image) => (
-                      <img
-                        key={image.id}
-                        src={image.imageUrl}
-                        alt="Report evidence"
-                        className="h-40 rounded-lg border object-cover"
-                      />
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                  No image uploaded yet. Image upload will be connected in the media step.
-                </div>
-              )}
+              <ReportEvidenceGallery evidence={evidence} />
             </CardContent>
           </Card>
         </div>

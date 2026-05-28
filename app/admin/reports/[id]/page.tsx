@@ -26,6 +26,7 @@ import {
 import { categoryToLabel, priorityToUi, statusToUi } from "../report-mappers"
 
 import { PriorityBadge, StatusBadge } from "@/components/dashboard/status-badge"
+import { ReportEvidenceGallery, type ReportEvidenceItem } from "@/components/report-evidence-gallery"
 import { ReportLocationMap } from "@/components/report-location-map"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -109,6 +110,11 @@ export default async function AdminReportReviewPage({
             createdAt: "asc",
           },
         },
+        attachments: {
+          orderBy: {
+            createdAt: "asc",
+          },
+        },
         auditLogs: {
           orderBy: {
             createdAt: "desc",
@@ -175,6 +181,20 @@ export default async function AdminReportReviewPage({
             reportId: report.id,
           },
         ]
+  const evidence: ReportEvidenceItem[] = [
+    ...report.attachments.map((attachment) => ({
+      id: attachment.id,
+      url: attachment.url,
+      fileName: attachment.fileName,
+      fileType: attachment.fileType,
+      fileSize: attachment.fileSize,
+    })),
+    ...report.images.map((image) => ({
+      id: `image-${image.id}`,
+      url: image.imageUrl,
+      fileName: "Report image",
+    })),
+  ]
 
   return (
     <div className="space-y-6">
@@ -322,31 +342,11 @@ export default async function AdminReportReviewPage({
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2 text-base">
                   <ImageIcon className="h-4 w-4 text-primary" />
-                  Issue Images
+                  Evidence
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {report.images.length > 0 ? (
-                  <div className="grid gap-3">
-                    {report.images.map((image) => (
-                      <img
-                        key={image.id}
-                        src={image.imageUrl}
-                        alt="Report evidence"
-                        className="aspect-video w-full rounded-lg border object-cover"
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="flex aspect-video items-center justify-center rounded-lg border-2 border-dashed border-border bg-muted/50">
-                    <div className="text-center">
-                      <ImageIcon className="mx-auto h-10 w-10 text-muted-foreground/50" />
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        No images uploaded for this report.
-                      </p>
-                    </div>
-                  </div>
-                )}
+                <ReportEvidenceGallery evidence={evidence} showTitle={false} />
               </CardContent>
             </Card>
 

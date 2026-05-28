@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import { getCurrentDbUser } from "@/lib/current-user"
+import { uploadReportEvidenceImage } from "@/lib/cloudinary"
 import { prisma } from "@/lib/prisma"
 import { findPotentialDuplicateReports } from "@/lib/report-duplicates"
 import {
@@ -29,6 +30,10 @@ type DuplicateWarningReport = {
   distanceMeters: number
   reasons: string[]
 }
+
+const MAX_EVIDENCE_FILES = 3
+const MAX_EVIDENCE_FILE_SIZE = 5 * 1024 * 1024
+const acceptedEvidenceTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"])
 
 const coordinateSchema = z
   .string()
@@ -107,6 +112,40 @@ function getSlaDueAt(createdAt: Date, priority: ReportPriority) {
   return new Date(createdAt.getTime() + hoursByPriority[priority] * 60 * 60 * 1000)
 }
 
+function getEvidenceFiles(formData: FormData) {
+  return formData
+    .getAll("evidence")
+    .filter((value): value is File => value instanceof File && value.size > 0)
+}
+
+function validateEvidenceFiles(files: File[]) {
+  if (files.length > MAX_EVIDENCE_FILES) {
+    return `Please upload no more than ${MAX_EVIDENCE_FILES} evidence images.`
+  }
+
+  const invalidType = files.find((file) => !acceptedEvidenceTypes.has(file.type))
+
+  if (invalidType) {
+    return "Evidence uploads must be image files in JPG, PNG, WEBP, or GIF format."
+  }
+
+  const oversizedFile = files.find((file) => file.size > MAX_EVIDENCE_FILE_SIZE)
+
+  if (oversizedFile) {
+    return "Each evidence image must be 5 MB or smaller."
+  }
+
+  return null
+}
+
+function getUploadErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message.includes("Cloudinary is not configured")) {
+    return error.message
+  }
+
+  return "Failed to upload evidence images. Please try again or submit without images."
+}
+
 export async function createReportAction(formData: FormData) {
   const dbUser = await getCurrentDbUser()
   const confirmDuplicate = formData.get("confirmDuplicate") === "true"
@@ -177,12 +216,35 @@ export async function createReportAction(formData: FormData) {
     }
   }
 
+  const evidenceFiles = getEvidenceFiles(formData)
+  const evidenceError = validateEvidenceFiles(evidenceFiles)
+
+  if (evidenceError) {
+    return { success: false, error: evidenceError }
+  }
+
   const department = await prisma.department.findFirst({
     where: {
       name: departmentMap[category],
       status: "ACTIVE",
     },
   })
+
+  let uploadedEvidence: {
+    file: File
+    upload: Awaited<ReturnType<typeof uploadReportEvidenceImage>>
+  }[] = []
+
+  try {
+    uploadedEvidence = await Promise.all(
+      evidenceFiles.map(async (file) => ({
+        file,
+        upload: await uploadReportEvidenceImage(file),
+      }))
+    )
+  } catch (error) {
+    return { success: false, error: getUploadErrorMessage(error) }
+  }
 
   try {
     const report = await prisma.report.create({
@@ -199,6 +261,18 @@ export async function createReportAction(formData: FormData) {
         slaDueAt,
         citizenId: dbUser.id,
         departmentId: department?.id,
+        attachments:
+          uploadedEvidence.length > 0
+            ? {
+                create: uploadedEvidence.map(({ file, upload }) => ({
+                  url: upload.url,
+                  publicId: upload.publicId,
+                  fileName: file.name || "report-evidence",
+                  fileType: file.type || "image",
+                  fileSize: file.size,
+                })),
+              }
+            : undefined,
         statusHistory: {
           create: {
             newStatus: ReportStatus.SUBMITTED,
@@ -230,6 +304,7 @@ export async function createReportAction(formData: FormData) {
     })
 
     revalidatePath("/citizen/reports")
+    revalidatePath(`/citizen/reports/${report.id}`)
     revalidatePath("/admin/reports")
     revalidatePath("/officer/reports")
 
