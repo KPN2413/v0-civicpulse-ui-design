@@ -18,6 +18,7 @@ import {
 
 import { PriorityBadge, StatusBadge } from "@/components/dashboard/status-badge"
 import { StatCard } from "@/components/dashboard/stat-card"
+import { ReportsAreaInsights } from "@/components/reports-area-insights"
 import { ReportsMapOverview } from "@/components/reports-map-overview"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -309,6 +310,8 @@ export function AdminReportsClient({ reports, stats }: AdminReportsClientProps) 
       </Card>
 
       <ReportsMapOverview reports={filteredReports} />
+
+      <ReportsAreaInsights reports={filteredReports} />
 
       <Card>
         <CardHeader>
