@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState, useTransition } from "react"
+import { useRef, useState } from "react"
 import {
   MapPin,
   Upload,
@@ -57,6 +57,36 @@ type DuplicateWarningReport = {
   reasons: string[]
 }
 
+type CloudinarySignatureResponse = {
+  cloudName: string
+  apiKey: string
+  timestamp: number
+  folder: string
+  signature: string
+}
+
+type CloudinaryUploadResponse = {
+  secure_url?: string
+  public_id?: string
+  original_filename?: string
+  bytes?: number
+  format?: string
+  resource_type?: string
+  error?: {
+    message?: string
+  }
+}
+
+type UploadedAttachmentMetadata = {
+  url: string
+  publicId: string
+  fileName: string
+  fileType: string
+  fileSize: number
+}
+
+type SubmitPhase = "idle" | "checking" | "uploading" | "submitting"
+
 const classificationLabels: Record<DuplicateWarningReport["classification"], string> = {
   LIKELY_DUPLICATE: "Likely duplicate",
   POSSIBLE_DUPLICATE: "Possible duplicate",
@@ -105,12 +135,84 @@ function getEvidenceSelectionError(files: File[]) {
   return null
 }
 
+async function getCloudinarySignature() {
+  const response = await fetch("/api/cloudinary/signature", {
+    method: "POST",
+  })
+  const payload = (await response.json().catch(() => ({}))) as Partial<
+    CloudinarySignatureResponse & { error: string }
+  >
+
+  if (!response.ok) {
+    throw new Error(payload.error ?? "Could not prepare evidence upload. Please try again.")
+  }
+
+  if (
+    !payload.cloudName ||
+    !payload.apiKey ||
+    !payload.timestamp ||
+    !payload.folder ||
+    !payload.signature
+  ) {
+    throw new Error("Evidence upload configuration is incomplete. Please try again.")
+  }
+
+  return payload as CloudinarySignatureResponse
+}
+
+async function uploadEvidenceFile(
+  file: File,
+  signature: CloudinarySignatureResponse
+): Promise<UploadedAttachmentMetadata> {
+  const uploadData = new FormData()
+
+  uploadData.append("file", file)
+  uploadData.append("api_key", signature.apiKey)
+  uploadData.append("timestamp", String(signature.timestamp))
+  uploadData.append("folder", signature.folder)
+  uploadData.append("signature", signature.signature)
+
+  const response = await fetch(
+    `https://api.cloudinary.com/v1_1/${signature.cloudName}/image/upload`,
+    {
+      method: "POST",
+      body: uploadData,
+    }
+  )
+  const payload = (await response.json().catch(() => ({}))) as CloudinaryUploadResponse
+
+  if (!response.ok) {
+    throw new Error(payload.error?.message ?? "Evidence upload failed. Please try again.")
+  }
+
+  if (!payload.secure_url || !payload.public_id) {
+    throw new Error("Evidence upload did not return a valid image URL.")
+  }
+
+  return {
+    url: payload.secure_url,
+    publicId: payload.public_id,
+    fileName: file.name || payload.original_filename || "report-evidence",
+    fileType: file.type || (payload.format ? `image/${payload.format}` : payload.resource_type ?? "image"),
+    fileSize: payload.bytes ?? file.size,
+  }
+}
+
+async function uploadEvidenceFiles(files: File[]) {
+  if (files.length === 0) return []
+
+  const signature = await getCloudinarySignature()
+
+  return Promise.all(files.map((file) => uploadEvidenceFile(file, signature)))
+}
+
 export default function ReportIssuePage() {
   const formRef = useRef<HTMLFormElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [selectedCategory, setSelectedCategory] = useState("")
   const [isDragging, setIsDragging] = useState(false)
-  const [isPending, startTransition] = useTransition()
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submitPhase, setSubmitPhase] = useState<SubmitPhase>("idle")
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [duplicateWarning, setDuplicateWarning] = useState<DuplicateWarningReport[] | null>(null)
@@ -174,13 +276,53 @@ export default function ReportIssuePage() {
     clearDuplicateWarningOnEdit()
   }
 
-  const handleSubmitReport = (event: React.FormEvent<HTMLFormElement>) => {
+  function getSubmitButtonLabel() {
+    if (isSubmitting) {
+      if (submitPhase === "checking") return "Checking duplicates..."
+      if (submitPhase === "uploading") return "Uploading evidence..."
+      return "Submitting..."
+    }
+
+    return duplicateWarning ? "Submit anyway" : "Submit Report"
+  }
+
+  function buildReportFormData(
+    form: HTMLFormElement,
+    options: {
+      attachments?: UploadedAttachmentMetadata[]
+      confirmDuplicate?: boolean
+      duplicateCheckOnly?: boolean
+    } = {}
+  ) {
+    const formData = new FormData(form)
+
+    formData.delete("evidence")
+    formData.delete("attachmentsJson")
+    formData.delete("confirmDuplicate")
+    formData.delete("duplicateCheckOnly")
+
+    if (options.attachments?.length) {
+      formData.set("attachmentsJson", JSON.stringify(options.attachments))
+    }
+
+    if (options.confirmDuplicate) {
+      formData.set("confirmDuplicate", "true")
+    }
+
+    if (options.duplicateCheckOnly) {
+      formData.set("duplicateCheckOnly", "true")
+    }
+
+    return formData
+  }
+
+  const handleSubmitReport = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
-    const formData = new FormData(event.currentTarget)
-    formData.delete("evidence")
-    selectedEvidenceFiles.forEach((file) => formData.append("evidence", file))
+    if (isSubmitting) return
 
+    const form = event.currentTarget
+    const isConfirmingDuplicate = Boolean(duplicateWarning)
     setError(null)
     setSuccessMessage(null)
     setDuplicateWarning(null)
@@ -200,16 +342,50 @@ export default function ReportIssuePage() {
     setLocationError(null)
     setEvidenceError(null)
 
-    startTransition(async () => {
-      const result = await createReportAction(formData)
+    setIsSubmitting(true)
+    setSubmitPhase("submitting")
 
-      if (!result.success) {
-        if ("duplicateWarning" in result && result.duplicateWarning) {
-          setDuplicateWarning(result.duplicates)
+    try {
+      if (selectedEvidenceFiles.length > 0 && !isConfirmingDuplicate) {
+        setSubmitPhase("checking")
+
+        const duplicateResult = await createReportAction(
+          buildReportFormData(form, {
+            duplicateCheckOnly: true,
+          })
+        )
+
+        if ("duplicateWarning" in duplicateResult && duplicateResult.duplicateWarning) {
+          setDuplicateWarning(duplicateResult.duplicates ?? [])
           return
         }
 
-        setError(result.error)
+        if (!("readyToSubmit" in duplicateResult && duplicateResult.readyToSubmit)) {
+          setError(duplicateResult.error ?? "Could not check for duplicate reports.")
+          return
+        }
+      }
+
+      setSubmitPhase(selectedEvidenceFiles.length > 0 ? "uploading" : "submitting")
+
+      const uploadedAttachments = await uploadEvidenceFiles(selectedEvidenceFiles)
+
+      setSubmitPhase("submitting")
+
+      const result = await createReportAction(
+        buildReportFormData(form, {
+          attachments: uploadedAttachments,
+          confirmDuplicate: isConfirmingDuplicate || selectedEvidenceFiles.length > 0,
+        })
+      )
+
+      if (!result.success) {
+        if ("duplicateWarning" in result && result.duplicateWarning) {
+          setDuplicateWarning(result.duplicates ?? [])
+          return
+        }
+
+        setError(result.error ?? "Failed to submit report.")
         return
       }
 
@@ -224,7 +400,12 @@ export default function ReportIssuePage() {
       setLocationError(null)
       setDuplicateWarning(null)
       setSuccessMessage(`Report submitted successfully. Report ID: ${result.reportId}`)
-    })
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Failed to upload evidence.")
+    } finally {
+      setIsSubmitting(false)
+      setSubmitPhase("idle")
+    }
   }
 
   return (
@@ -528,13 +709,9 @@ export default function ReportIssuePage() {
             </CardContent>
           </Card>
 
-          <Button type="submit" size="lg" className="w-full gap-2" disabled={isPending}>
+          <Button type="submit" size="lg" className="w-full gap-2" disabled={isSubmitting}>
             <CheckCircle2 className="h-5 w-5" />
-            {isPending
-              ? "Submitting..."
-              : duplicateWarning
-                ? "Submit anyway"
-                : "Submit Report"}
+            {getSubmitButtonLabel()}
           </Button>
         </form>
 

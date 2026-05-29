@@ -51,7 +51,9 @@ export function ReportLocationPicker({
   const leafletRef = useRef<LeafletModule | null>(null)
   const onChangeRef = useRef(onChange)
   const valueRef = useRef(value)
+  const hasSetFallbackLocationRef = useRef(false)
   const [isMapReady, setIsMapReady] = useState(false)
+  const [mapLoadError, setMapLoadError] = useState(false)
 
   useEffect(() => {
     onChangeRef.current = onChange
@@ -99,51 +101,84 @@ export function ReportLocationPicker({
     }
   }, [])
 
+  const useFallbackLocation = useCallback(() => {
+    if (valueRef.current || hasSetFallbackLocationRef.current) return
+
+    hasSetFallbackLocationRef.current = true
+    onChangeRef.current({
+      latitude: DEFAULT_CENTER[0],
+      longitude: DEFAULT_CENTER[1],
+    })
+  }, [])
+
   useEffect(() => {
     let isMounted = true
 
-    void import("leaflet").then((Leaflet) => {
-      const mapContainer = mapContainerRef.current
+    void import("leaflet")
+      .then((Leaflet) => {
+        const mapContainer = mapContainerRef.current
 
-      if (!isMounted || !mapContainer || mapRef.current) return
+        if (!isMounted || !mapContainer || mapRef.current) return
 
-      leafletRef.current = Leaflet
+        try {
+          leafletRef.current = Leaflet
 
-      const initialValue = valueRef.current
-      const initialCenter: [number, number] = initialValue
-        ? [initialValue.latitude, initialValue.longitude]
-        : DEFAULT_CENTER
-      const map = Leaflet.map(mapContainer, {
-        center: initialCenter,
-        scrollWheelZoom: true,
-        zoom: initialValue ? SELECTED_ZOOM : DEFAULT_ZOOM,
+          const initialValue = valueRef.current
+          const initialCenter: [number, number] = initialValue
+            ? [initialValue.latitude, initialValue.longitude]
+            : DEFAULT_CENTER
+          const map = Leaflet.map(mapContainer, {
+            center: initialCenter,
+            scrollWheelZoom: true,
+            zoom: initialValue ? SELECTED_ZOOM : DEFAULT_ZOOM,
+          })
+
+          const tileLayer = Leaflet.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            attribution: "&copy; OpenStreetMap contributors",
+            maxZoom: 19,
+          })
+
+          tileLayer.on("tileerror", () => {
+            if (!isMounted) return
+
+            setMapLoadError(true)
+            useFallbackLocation()
+          })
+
+          tileLayer.addTo(map)
+
+          map.on("click", (event) => {
+            setMarkerPosition(
+              Leaflet,
+              {
+                latitude: event.latlng.lat,
+                longitude: event.latlng.lng,
+              },
+              true
+            )
+          })
+
+          mapRef.current = map
+
+          if (initialValue) {
+            setMarkerPosition(Leaflet, initialValue, false)
+          }
+
+          setIsMapReady(true)
+          window.setTimeout(() => map.invalidateSize(), 0)
+        } catch (error) {
+          console.error("Failed to initialize report location map", error)
+          setMapLoadError(true)
+          useFallbackLocation()
+        }
       })
+      .catch((error) => {
+        if (!isMounted) return
 
-      Leaflet.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: "&copy; OpenStreetMap contributors",
-        maxZoom: 19,
-      }).addTo(map)
-
-      map.on("click", (event) => {
-        setMarkerPosition(
-          Leaflet,
-          {
-            latitude: event.latlng.lat,
-            longitude: event.latlng.lng,
-          },
-          true
-        )
+        console.error("Failed to load Leaflet for report location map", error)
+        setMapLoadError(true)
+        useFallbackLocation()
       })
-
-      mapRef.current = map
-
-      if (initialValue) {
-        setMarkerPosition(Leaflet, initialValue, false)
-      }
-
-      setIsMapReady(true)
-      window.setTimeout(() => map.invalidateSize(), 0)
-    })
 
     return () => {
       isMounted = false
@@ -153,7 +188,7 @@ export function ReportLocationPicker({
       mapRef.current = null
       leafletRef.current = null
     }
-  }, [setMarkerPosition])
+  }, [setMarkerPosition, useFallbackLocation])
 
   useEffect(() => {
     const Leaflet = leafletRef.current
@@ -174,13 +209,21 @@ export function ReportLocationPicker({
       <div
         ref={mapContainerRef}
         className={cn(
-          "relative h-[280px] overflow-hidden rounded-lg border bg-muted/30",
+          "relative h-[280px] min-h-[280px] overflow-hidden rounded-lg border bg-muted/30",
           error ? "border-destructive" : "border-border"
         )}
       >
-        {!isMapReady ? (
+        {!isMapReady && !mapLoadError ? (
           <div className="absolute inset-0 z-[500] flex items-center justify-center bg-muted/40 text-sm text-muted-foreground">
             Loading map...
+          </div>
+        ) : null}
+
+        {mapLoadError ? (
+          <div className="absolute inset-0 z-[500] flex items-center justify-center bg-background/90 p-4 text-center backdrop-blur-sm">
+            <p className="max-w-sm text-sm text-muted-foreground">
+              Map could not load. You can still submit the report with the selected/default location.
+            </p>
           </div>
         ) : null}
 

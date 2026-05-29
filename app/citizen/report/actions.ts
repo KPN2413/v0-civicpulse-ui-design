@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import { getCurrentDbUser } from "@/lib/current-user"
-import { uploadReportEvidenceImage } from "@/lib/cloudinary"
 import { createNotification, notifyAdmins } from "@/lib/notifications"
 import { prisma } from "@/lib/prisma"
 import { findPotentialDuplicateReports } from "@/lib/report-duplicates"
@@ -35,7 +34,6 @@ type DuplicateWarningReport = {
 
 const MAX_EVIDENCE_FILES = 3
 const MAX_EVIDENCE_FILE_SIZE = 5 * 1024 * 1024
-const acceptedEvidenceTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"])
 
 const coordinateSchema = z
   .string()
@@ -52,6 +50,16 @@ const reportSchema = z.object({
   latitude: coordinateSchema.pipe(z.number().min(-90).max(90)),
   longitude: coordinateSchema.pipe(z.number().min(-180).max(180)),
 })
+
+const attachmentSchema = z.object({
+  url: z.string().url().refine((value) => value.startsWith("https://")),
+  publicId: z.string().trim().min(1).max(300),
+  fileName: z.string().trim().min(1).max(255).optional(),
+  fileType: z.string().trim().min(1).max(100).optional(),
+  fileSize: z.number().int().positive().max(MAX_EVIDENCE_FILE_SIZE).optional(),
+})
+
+const attachmentsSchema = z.array(attachmentSchema).max(MAX_EVIDENCE_FILES)
 
 const categoryMap: Record<string, IssueCategory> = {
   "road-damage": IssueCategory.ROAD_DAMAGE,
@@ -114,43 +122,36 @@ function getSlaDueAt(createdAt: Date, priority: ReportPriority) {
   return new Date(createdAt.getTime() + hoursByPriority[priority] * 60 * 60 * 1000)
 }
 
-function getEvidenceFiles(formData: FormData) {
-  return formData
-    .getAll("evidence")
-    .filter((value): value is File => value instanceof File && value.size > 0)
-}
+function parseAttachments(formData: FormData) {
+  const value = formData.get("attachmentsJson")
 
-function validateEvidenceFiles(files: File[]) {
-  if (files.length > MAX_EVIDENCE_FILES) {
-    return `Please upload no more than ${MAX_EVIDENCE_FILES} evidence images.`
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return { attachments: [], error: null }
   }
 
-  const invalidType = files.find((file) => !acceptedEvidenceTypes.has(file.type))
+  try {
+    const parsed = attachmentsSchema.safeParse(JSON.parse(value))
 
-  if (invalidType) {
-    return "Evidence uploads must be image files in JPG, PNG, WEBP, or GIF format."
+    if (!parsed.success) {
+      return {
+        attachments: [],
+        error: "Uploaded evidence metadata is invalid. Please try uploading again.",
+      }
+    }
+
+    return { attachments: parsed.data, error: null }
+  } catch {
+    return {
+      attachments: [],
+      error: "Uploaded evidence metadata is invalid. Please try uploading again.",
+    }
   }
-
-  const oversizedFile = files.find((file) => file.size > MAX_EVIDENCE_FILE_SIZE)
-
-  if (oversizedFile) {
-    return "Each evidence image must be 5 MB or smaller."
-  }
-
-  return null
-}
-
-function getUploadErrorMessage(error: unknown) {
-  if (error instanceof Error && error.message.includes("Cloudinary is not configured")) {
-    return error.message
-  }
-
-  return "Failed to upload evidence images. Please try again or submit without images."
 }
 
 export async function createReportAction(formData: FormData) {
   const dbUser = await getCurrentDbUser()
   const confirmDuplicate = formData.get("confirmDuplicate") === "true"
+  const duplicateCheckOnly = formData.get("duplicateCheckOnly") === "true"
 
   if (!dbUser) {
     return { success: false, error: "You must be signed in to submit a report." }
@@ -216,13 +217,21 @@ export async function createReportAction(formData: FormData) {
         })),
       }
     }
+
+    if (duplicateCheckOnly) {
+      return {
+        success: false,
+        error: null,
+        duplicateWarning: false,
+        readyToSubmit: true,
+      }
+    }
   }
 
-  const evidenceFiles = getEvidenceFiles(formData)
-  const evidenceError = validateEvidenceFiles(evidenceFiles)
+  const { attachments, error: attachmentsError } = parseAttachments(formData)
 
-  if (evidenceError) {
-    return { success: false, error: evidenceError }
+  if (attachmentsError) {
+    return { success: false, error: attachmentsError }
   }
 
   const department = await prisma.department.findFirst({
@@ -231,22 +240,6 @@ export async function createReportAction(formData: FormData) {
       status: "ACTIVE",
     },
   })
-
-  let uploadedEvidence: {
-    file: File
-    upload: Awaited<ReturnType<typeof uploadReportEvidenceImage>>
-  }[] = []
-
-  try {
-    uploadedEvidence = await Promise.all(
-      evidenceFiles.map(async (file) => ({
-        file,
-        upload: await uploadReportEvidenceImage(file),
-      }))
-    )
-  } catch (error) {
-    return { success: false, error: getUploadErrorMessage(error) }
-  }
 
   try {
     const report = await prisma.report.create({
@@ -264,14 +257,14 @@ export async function createReportAction(formData: FormData) {
         citizenId: dbUser.id,
         departmentId: department?.id,
         attachments:
-          uploadedEvidence.length > 0
+          attachments.length > 0
             ? {
-                create: uploadedEvidence.map(({ file, upload }) => ({
-                  url: upload.url,
-                  publicId: upload.publicId,
-                  fileName: file.name || "report-evidence",
-                  fileType: file.type || "image",
-                  fileSize: file.size,
+                create: attachments.map((attachment) => ({
+                  url: attachment.url,
+                  publicId: attachment.publicId,
+                  fileName: attachment.fileName ?? "report-evidence",
+                  fileType: attachment.fileType ?? "image",
+                  fileSize: attachment.fileSize,
                 })),
               }
             : undefined,
@@ -324,7 +317,7 @@ export async function createReportAction(formData: FormData) {
         }),
       ])
 
-      if (uploadedEvidence.length > 0) {
+      if (attachments.length > 0) {
         await notifyAdmins({
           type: NotificationType.REPORT_EVIDENCE_ADDED,
           title: "Evidence attached",
