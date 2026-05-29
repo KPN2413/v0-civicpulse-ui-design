@@ -1,12 +1,29 @@
-# CivicPulse — Smart City Public Issue Reporting and Resolution Platform
+# CivicPulse - Smart City Public Issue Reporting and Resolution Platform
 
-CivicPulse is a civic operations platform for reporting, reviewing, assigning, tracking, and resolving public infrastructure issues. It goes beyond a complaint CRUD app by combining role-based workflows, SLA tracking, duplicate report detection, map-based location intelligence, evidence upload, audit trails, and notification systems.
+**Live Demo:** https://v0-civicpulse-ui-design-qiy4jz9nl-prakhars-projects-0908ad55.vercel.app/
 
-## Live Demo
+CivicPulse is a full-stack civic operations platform for reporting, triaging, assigning, and resolving public infrastructure issues. It is designed as a realistic smart-city workflow system with citizen reporting, administrative review, officer visibility, SLA tracking, duplicate detection, media evidence, maps, audit trails, and notifications.
 
-Live Demo: <ADD_VERCEL_URL_HERE>
+Built with Next.js App Router, Prisma, PostgreSQL, Clerk, Cloudinary, Resend, Tailwind CSS, shadcn/ui, and Vercel.
 
-Deployment is designed for Vercel with PostgreSQL, Clerk, Cloudinary, and Resend configured through environment variables.
+## Project Pitch
+
+CivicPulse turns public issue reporting into an end-to-end civic workflow. Citizens can submit location-based reports with evidence, while admins and officers manage verification, assignment, SLA tracking, and resolution through role-based dashboards.
+
+The project demonstrates production-style full-stack engineering: RBAC, real database workflows, signed media upload, duplicate detection, in-app notifications, transactional emails, and deployment-ready documentation.
+
+## Screenshots
+
+Screenshots should be added to `public/screenshots` before sharing the repository publicly.
+
+Recommended screenshots:
+
+- `public/screenshots/citizen-report-form.png` - citizen report submission with map picker and evidence upload.
+- `public/screenshots/admin-reports.png` - admin reports list with filters, SLA cards, map overview, and area insights.
+- `public/screenshots/report-detail.png` - report detail page with timeline, SLA status, evidence, and location map.
+- `public/screenshots/notifications.png` - in-app notifications with read/unread state.
+
+No fake screenshots are included. Add real captures from the deployed app or local demo environment.
 
 ## Documentation
 
@@ -16,32 +33,53 @@ Deployment is designed for Vercel with PostgreSQL, Clerk, Cloudinary, and Resend
 - [Testing Checklist](docs/testing-checklist.md)
 - [Security Notes](docs/security.md)
 - [Resume and Interview Notes](docs/resume-notes.md)
+- [Project Presentation Notes](docs/project-presentation.md)
 - [Email Notifications](docs/email-notifications.md)
 
-## Key Features
+## Feature Overview
 
-- Clerk authentication with role-based redirects.
-- Role-based dashboards and routes for Citizen, Department Officer, Admin, and Super Admin.
-- Citizen report submission with title, description, category, address, map-selected coordinates, and image evidence.
-- Report status workflow for review, assignment, rejection, and resolution.
-- Department assignment and officer-scoped report visibility.
-- SLA due date calculation, SLA badges, SLA filters, and dashboard SLA summaries.
+### Authentication and Roles
+
+- Clerk authentication with protected route groups.
+- Role-based dashboards and navigation for Citizen, Department Officer, Admin, and Super Admin.
+- Clerk role metadata synced into the database through the current-user helper.
+
+### Citizen Reporting
+
+- Citizen report submission with title, description, category, address, and map-selected coordinates.
+- Leaflet/OpenStreetMap location picker.
+- Image evidence upload through direct browser-to-Cloudinary signed uploads.
 - Duplicate report warning flow with "submit anyway" confirmation.
-- Leaflet/OpenStreetMap location picker and read-only report location maps.
-- Multi-marker report map overview and area insight clustering.
-- Cloudinary direct browser upload with signed server-side upload parameters.
-- In-app notifications with read/unread state.
-- Resend transactional email notifications for report submission and workflow updates.
+- Citizen report list and detail pages backed by PostgreSQL.
+
+### Admin and Officer Workflows
+
+- Admin report management with real database-backed list and detail pages.
+- Verify, assign/reassign, reject, and resolve report workflow actions.
+- Department CRUD for civic team organization.
+- Officer report pages scoped to relevant reports, avoiding global report exposure.
+- Super Admin report pages inherit the Admin reports implementation where appropriate.
+
+### Operational Intelligence
+
+- SLA due dates based on report priority.
+- SLA status badges, filters, summary cards, and dashboard overview.
+- Multi-marker report map overview.
+- Area insight clustering for mapped reports.
 - Audit logs and status history for workflow accountability.
-- Admin, Officer, and Super Admin report management views.
-- PostgreSQL persistence through Prisma.
+
+### Notifications
+
+- In-app notifications with read/unread state and mark-as-read actions.
+- Resend transactional email notifications for report submission and workflow updates.
+- Email sending is non-blocking so report workflows continue if email delivery fails.
 
 ## Tech Stack
 
 | Area | Technology |
 | --- | --- |
 | Frontend | Next.js App Router, React, TypeScript, Tailwind CSS, shadcn/ui |
-| Backend/App | Next.js Server Components, Server Actions, Route Handlers |
+| Backend/App | Server Components, Server Actions, Route Handlers |
 | Auth | Clerk |
 | Database/ORM | PostgreSQL, Prisma |
 | Media | Cloudinary signed uploads |
@@ -62,6 +100,8 @@ High-level report flow:
 6. Admins verify, assign, reject, or resolve reports.
 7. Officers see only reports relevant to their assignment or department scope.
 8. Citizens can follow report status, evidence, maps, SLA state, and notifications.
+
+See [docs/architecture.md](docs/architecture.md) for a deeper module and data-flow explanation.
 
 ## Role Breakdown
 
@@ -163,7 +203,9 @@ NEXT_PUBLIC_APP_URL=
 7. Configure Resend with a verified sending domain and `EMAIL_FROM`.
 8. Redeploy after changing environment variables.
 
-## Testing Checklist
+See [docs/deployment.md](docs/deployment.md) for the full deployment guide.
+
+## Manual Testing Checklist
 
 - Sign in/sign up through Clerk.
 - Confirm role redirects for Citizen, Officer, Admin, and Super Admin.
@@ -177,6 +219,8 @@ NEXT_PUBLIC_APP_URL=
 - Confirm in-app notifications are created and can be marked read.
 - Confirm Resend emails send when enabled.
 - Run `pnpm lint` and `pnpm build`.
+
+See [docs/testing-checklist.md](docs/testing-checklist.md) for a fuller checklist.
 
 ## Interview Highlights
 
