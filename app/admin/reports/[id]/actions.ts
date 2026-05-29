@@ -6,6 +6,11 @@ import { getCurrentDbUser } from "@/lib/current-user"
 import { createNotification } from "@/lib/notifications"
 import { prisma } from "@/lib/prisma"
 import {
+  sendOfficerAssignedEmail,
+  sendReportResolvedEmail,
+  sendReportStatusChangedEmail,
+} from "@/lib/report-email-notifications"
+import {
   DepartmentStatus,
   NotificationType,
   ReportStatus,
@@ -64,6 +69,16 @@ async function safelyCreateWorkflowNotification(
   }
 }
 
+async function safelySendWorkflowEmail(sendEmail: () => Promise<unknown>, context: string) {
+  try {
+    await sendEmail()
+  } catch (error) {
+    console.error(`Failed to send ${context} email`, {
+      message: error instanceof Error ? error.message : "Unknown email error",
+    })
+  }
+}
+
 export async function verifyReportAction(formData: FormData): Promise<void> {
   const reportId = getRequiredFormString(formData, "reportId")
   const user = await getWorkflowUser()
@@ -75,7 +90,17 @@ export async function verifyReportAction(formData: FormData): Promise<void> {
       },
       select: {
         id: true,
+        title: true,
+        category: true,
+        priority: true,
+        address: true,
         citizenId: true,
+        citizen: {
+          select: {
+            email: true,
+            name: true,
+          },
+        },
         status: true,
       },
     })
@@ -125,6 +150,16 @@ export async function verifyReportAction(formData: FormData): Promise<void> {
 
     return {
       citizenId: report.citizenId,
+      citizen: report.citizen,
+      previousStatus: report.status,
+      report: {
+        id: report.id,
+        title: report.title,
+        category: report.category,
+        priority: report.priority,
+        status: ReportStatus.VERIFIED,
+        address: report.address,
+      },
       reportId: report.id,
     }
   })
@@ -138,6 +173,18 @@ export async function verifyReportAction(formData: FormData): Promise<void> {
       reportId: notificationTarget.reportId,
       actorId: user.id,
     },
+    "report verified"
+  )
+
+  await safelySendWorkflowEmail(
+    () =>
+      sendReportStatusChangedEmail({
+        report: notificationTarget.report,
+        citizen: notificationTarget.citizen,
+        previousStatus: notificationTarget.previousStatus,
+        newStatus: ReportStatus.VERIFIED,
+        note: "Your report has been verified and is ready for action.",
+      }),
     "report verified"
   )
 
@@ -156,10 +203,26 @@ export async function assignDepartmentAction(formData: FormData): Promise<void> 
       },
       select: {
         id: true,
+        title: true,
+        category: true,
+        priority: true,
+        address: true,
         citizenId: true,
+        citizen: {
+          select: {
+            email: true,
+            name: true,
+          },
+        },
         departmentId: true,
         firstAssignedAt: true,
-        officerId: true,
+        officer: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+          },
+        },
         status: true,
       },
     })
@@ -240,9 +303,20 @@ export async function assignDepartmentAction(formData: FormData): Promise<void> 
 
     return {
       citizenId: report.citizenId,
-      officerId: report.officerId,
+      citizen: report.citizen,
+      officer: report.officer,
+      previousStatus: report.status,
+      report: {
+        id: report.id,
+        title: report.title,
+        category: report.category,
+        priority: report.priority,
+        status: nextStatus,
+        address: report.address,
+      },
       reportId: report.id,
       isReassignment,
+      statusChanged: nextStatus !== report.status,
     }
   })
 
@@ -262,7 +336,7 @@ export async function assignDepartmentAction(formData: FormData): Promise<void> 
     ),
     safelyCreateWorkflowNotification(
       {
-        userId: notificationTarget.officerId,
+        userId: notificationTarget.officer?.id,
         type: notificationTarget.isReassignment
           ? NotificationType.REPORT_REASSIGNED
           : NotificationType.REPORT_ASSIGNED,
@@ -274,6 +348,41 @@ export async function assignDepartmentAction(formData: FormData): Promise<void> 
       "officer assignment"
     ),
   ])
+
+  const emailTasks: Array<Promise<void>> = []
+
+  if (notificationTarget.statusChanged) {
+    emailTasks.push(
+      safelySendWorkflowEmail(
+        () =>
+          sendReportStatusChangedEmail({
+            report: notificationTarget.report,
+            citizen: notificationTarget.citizen,
+            previousStatus: notificationTarget.previousStatus,
+            newStatus: notificationTarget.report.status,
+            note: "Your report has been assigned to the concerned team.",
+          }),
+        "report assigned"
+      )
+    )
+  }
+
+  if (notificationTarget.officer) {
+    const officer = notificationTarget.officer
+
+    emailTasks.push(
+      safelySendWorkflowEmail(
+        () =>
+          sendOfficerAssignedEmail({
+            report: notificationTarget.report,
+            officer,
+          }),
+        "officer assignment"
+      )
+    )
+  }
+
+  await Promise.all(emailTasks)
 
   revalidateReportPaths(reportId)
 }
@@ -290,7 +399,17 @@ export async function rejectReportAction(formData: FormData): Promise<void> {
       },
       select: {
         id: true,
+        title: true,
+        category: true,
+        priority: true,
+        address: true,
         citizenId: true,
+        citizen: {
+          select: {
+            email: true,
+            name: true,
+          },
+        },
         status: true,
       },
     })
@@ -338,6 +457,16 @@ export async function rejectReportAction(formData: FormData): Promise<void> {
 
     return {
       citizenId: report.citizenId,
+      citizen: report.citizen,
+      previousStatus: report.status,
+      report: {
+        id: report.id,
+        title: report.title,
+        category: report.category,
+        priority: report.priority,
+        status: ReportStatus.REJECTED,
+        address: report.address,
+      },
       reportId: report.id,
     }
   })
@@ -351,6 +480,18 @@ export async function rejectReportAction(formData: FormData): Promise<void> {
       reportId: notificationTarget.reportId,
       actorId: user.id,
     },
+    "report rejected"
+  )
+
+  await safelySendWorkflowEmail(
+    () =>
+      sendReportStatusChangedEmail({
+        report: notificationTarget.report,
+        citizen: notificationTarget.citizen,
+        previousStatus: notificationTarget.previousStatus,
+        newStatus: ReportStatus.REJECTED,
+        note: reason,
+      }),
     "report rejected"
   )
 
@@ -369,7 +510,17 @@ export async function resolveReportAction(formData: FormData): Promise<void> {
       },
       select: {
         id: true,
+        title: true,
+        category: true,
+        priority: true,
+        address: true,
         citizenId: true,
+        citizen: {
+          select: {
+            email: true,
+            name: true,
+          },
+        },
         status: true,
       },
     })
@@ -421,6 +572,15 @@ export async function resolveReportAction(formData: FormData): Promise<void> {
 
     return {
       citizenId: report.citizenId,
+      citizen: report.citizen,
+      report: {
+        id: report.id,
+        title: report.title,
+        category: report.category,
+        priority: report.priority,
+        status: ReportStatus.RESOLVED,
+        address: report.address,
+      },
       reportId: report.id,
     }
   })
@@ -434,6 +594,16 @@ export async function resolveReportAction(formData: FormData): Promise<void> {
       reportId: notificationTarget.reportId,
       actorId: user.id,
     },
+    "report resolved"
+  )
+
+  await safelySendWorkflowEmail(
+    () =>
+      sendReportResolvedEmail({
+        report: notificationTarget.report,
+        citizen: notificationTarget.citizen,
+        resolutionNote: "Report marked as resolved by admin.",
+      }),
     "report resolved"
   )
 

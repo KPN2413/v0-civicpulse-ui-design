@@ -6,6 +6,7 @@ import { z } from "zod"
 import { getCurrentDbUser } from "@/lib/current-user"
 import { createNotification, notifyAdmins } from "@/lib/notifications"
 import { prisma } from "@/lib/prisma"
+import { sendReportSubmittedEmail } from "@/lib/report-email-notifications"
 import { findPotentialDuplicateReports } from "@/lib/report-duplicates"
 import {
   IssueCategory,
@@ -328,6 +329,17 @@ export async function createReportAction(formData: FormData) {
       }
     } catch (error) {
       console.error("Failed to create report notifications", error)
+    }
+
+    try {
+      await sendReportSubmittedEmail({
+        report,
+        citizen: dbUser,
+      })
+    } catch (error) {
+      console.error("Failed to send report submitted email", {
+        message: error instanceof Error ? error.message : "Unknown email error",
+      })
     }
 
     revalidatePath("/citizen/reports")
